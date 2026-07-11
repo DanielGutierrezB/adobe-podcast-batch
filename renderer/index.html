@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adobe Podcast Batch</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🎙️ <span>Adobe Podcast Batch</span></div>
+    <div class="conn" id="conn">
+      <span class="dot" id="dot"></span>
+      <span id="connText">Desconectado</span>
+      <button id="connectBtn" class="btn small">Conectar con Adobe</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Ajustes de mezcla</h2>
+      <div class="sliders">
+        <div class="slider-row">
+          <label>Speech <span class="val" id="speechVal">80%</span></label>
+          <input type="range" id="speech" min="0" max="100" value="80" />
+        </div>
+        <div class="slider-row">
+          <label>Music <span class="val" id="musicVal">0%</span></label>
+          <input type="range" id="music" min="0" max="100" value="0" />
+        </div>
+        <div class="slider-row">
+          <label>Background <span class="val" id="backgroundVal">0%</span></label>
+          <input type="range" id="background" min="0" max="100" value="0" />
+        </div>
+      </div>
+      <p class="hint">Se guardan como valores por defecto. Salida: <code>archivo_enhanced.wav</code> junto al original.</p>
+    </section>
+
+    <section class="panel">
+      <div class="actions">
+        <button id="addFiles" class="btn">＋ Agregar audios</button>
+        <button id="addFolder" class="btn">📁 Agregar carpeta</button>
+        <div class="spacer"></div>
+        <button id="clearBtn" class="btn ghost">Limpiar</button>
+        <button id="stopBtn" class="btn ghost" style="display:none">■ Detener</button>
+        <button id="startBtn" class="btn primary" disabled>▶ Procesar</button>
+      </div>
+      <div id="limitBanner" class="banner" style="display:none">
+        ⏳ <span id="limitText">Sin créditos de Adobe. Esperando…</span>
+      </div>
+      <div class="queue-head">
+        <span id="queueCount">0 archivos</span>
+        <div class="progress"><div class="bar" id="overallBar"></div></div>
+      </div>
+      <ul class="queue" id="queue"></ul>
+      <div class="drop-hint" id="dropHint">Arrastrá audios o una carpeta acá</div>
+    </section>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

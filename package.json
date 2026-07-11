@@ -1,0 +1,34 @@
+{
+  "name": "adobe-podcast-batch",
+  "version": "1.0.0",
+  "description": "App de escritorio para procesar audios por lote con Adobe Podcast Enhance Speech",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "icon": "electron build/gen-icon.js",
+    "dist": "electron-builder --mac"
+  },
+  "author": "Daniel Gutiérrez",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/packager": "^20.0.2",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.danielgutierrez.adobepodcastbatch",
+    "productName": "Adobe Podcast Batch",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": [
+      "main.js", "preload.js", "enhance.js",
+      "renderer/**/*", "build/icon.icns"
+    ],
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": null
+    },
+    "dmg": { "title": "Adobe Podcast Batch ${version}" }
+  }
+}

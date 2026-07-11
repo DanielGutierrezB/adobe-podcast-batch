@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+settings.json
+token.txt
+*.dmg
+*.blockmap
+*.zip
+.DS_Store
+build/icon.iconset/
