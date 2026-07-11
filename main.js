@@ -114,6 +114,16 @@ ipcMain.handle('connect-adobe', async () => {
 });
 ipcMain.handle('token-status', () => ({ connected: !!currentToken, email: currentToken ? decodeEmail(currentToken) : null }));
 
+// Cola persistente (sobrevive al cerrar/reabrir). Filtra archivos que ya no existen.
+ipcMain.handle('get-queue', () => {
+  const s = loadSettings();
+  const q = Array.isArray(s.queue) ? s.queue : [];
+  return q.filter(it => { try { return it && it.path && fs.existsSync(it.path); } catch { return false; } });
+});
+ipcMain.handle('save-queue', (_e, q) => {
+  const s = loadSettings(); s.queue = Array.isArray(q) ? q : []; saveSettings(s); return true;
+});
+
 ipcMain.handle('pick-files', async () => {
   const r = await dialog.showOpenDialog(mainWin, {
     properties: ['openFile', 'multiSelections'],

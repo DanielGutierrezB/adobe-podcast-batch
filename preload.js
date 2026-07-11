@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (s) => ipcRenderer.invoke('save-settings', s),
   connectAdobe: () => ipcRenderer.invoke('connect-adobe'),
   tokenStatus: () => ipcRenderer.invoke('token-status'),
+  getQueue: () => ipcRenderer.invoke('get-queue'),
+  saveQueue: (q) => ipcRenderer.invoke('save-queue', q),
   pickFiles: () => ipcRenderer.invoke('pick-files'),
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
   startBatch: (payload) => ipcRenderer.invoke('start-batch', payload),

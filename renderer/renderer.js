@@ -21,10 +21,20 @@ async function init() {
   });
   refreshConn(await window.api.tokenStatus());
 
+  // restaura la cola guardada (los no-terminados vuelven a "en espera")
+  try {
+    const saved = await window.api.getQueue();
+    queue = (saved || []).map(x => ({
+      path: x.path, name: x.name || basename(x.path),
+      state: x.state === 'listo' ? 'listo' : 'en espera',
+      pct: x.state === 'listo' ? 100 : 0,
+    }));
+  } catch {}
+
   $('connectBtn').onclick = onConnect;
   $('addFiles').onclick = async () => addToQueue(await window.api.pickFiles());
   $('addFolder').onclick = async () => addToQueue(await window.api.pickFolder());
-  $('clearBtn').onclick = () => { if (!processing) { queue = []; renderAll(); } };
+  $('clearBtn').onclick = () => { if (!processing) { queue = []; renderAll(); saveQueue(); } };
   $('startBtn').onclick = start;
   $('stopBtn').onclick = () => { window.api.stopBatch(); $('stopBtn').textContent = 'Deteniendo…'; };
 
@@ -33,6 +43,7 @@ async function init() {
   window.api.onDone(({ filePath, ok, error }) => {
     updateItem(filePath, ok ? { state: 'listo', pct: 100 } : { state: 'error', error });
     bumpOverall();
+    saveQueue();
   });
   window.api.onConn((r) => refreshConn(r));
   window.api.onAuthExpired(() => { connected = false; refreshConn({ connected: false }); });
@@ -61,6 +72,15 @@ function addToQueue(paths) {
     if (!queue.find(q => q.path === p)) queue.push({ path: p, name: basename(p), state: 'en espera', pct: 0 });
   }
   renderAll();
+  saveQueue();
+}
+// Persiste la cola (solo path/name/estado terminal) para sobrevivir al cierre.
+function saveQueue() {
+  try {
+    window.api.saveQueue(queue.map(q => ({
+      path: q.path, name: q.name, state: q.state === 'listo' ? 'listo' : 'pendiente',
+    })));
+  } catch {}
 }
 function updateStart() { $('startBtn').disabled = processing || !connected || queue.length === 0; }
 
