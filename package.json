@@ -1,6 +1,6 @@
 {
   "name": "adobe-podcast-batch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "App de escritorio para procesar audios por lote con Adobe Podcast Enhance Speech",
   "main": "main.js",
   "scripts": {
@@ -28,7 +28,11 @@
       "preload.js",
       "enhance.js",
       "renderer/**/*",
-      "build/icon.icns"
+      "build/icon.icns",
+      "!node_modules/ffmpeg-static/**"
+    ],
+    "extraResources": [
+      { "from": "build/ffmpeg/ffmpeg", "to": "bin/ffmpeg" }
     ],
     "mac": {
       "target": "dmg",
@@ -39,5 +43,8 @@
     "dmg": {
       "title": "Adobe Podcast Batch ${version}"
     }
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0"
   }
 }

@@ -2,8 +2,10 @@
 // Reutiliza el endpoint interno "phonos" que usa la web. Node 18+ (fetch global).
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
 const { randomUUID } = crypto;
 
 const BASE = 'https://phonos-server-flex.adobe.io';
@@ -40,9 +42,11 @@ async function enhanceFile(inPath, opts = {}) {
   const {
     token,
     model = 'v2',
-    mix = null,          // {speech,music,background} en 0..100 (opcional, requiere API confirmada)
+    cleanVoice = 100,    // % de voz limpia (100 = solo enhanced; <100 = blend con original)
+    ffmpeg = null,       // ruta al binario ffmpeg (para el blend)
     onStatus = () => {},
   } = opts;
+  const cleanPct = Math.max(0, Math.min(100, Number(cleanVoice)));
 
   if (!token) throw new Error('Falta el token de Adobe');
   if (!fs.existsSync(inPath)) throw new Error('No existe el archivo: ' + inPath);
@@ -80,12 +84,6 @@ async function enhanceFile(inPath, opts = {}) {
   // 3) crear track de enhance
   onStatus('procesando');
   const trackBody = { id: trackId, track_name: name, model_version: model, signed_id: signedId };
-  if (mix) {
-    // Nota: nombres tentativos hasta confirmar con captura real de la web.
-    trackBody.mix = {
-      speech: mix.speech / 100, music: mix.music / 100, background: mix.background / 100,
-    };
-  }
   const ctRes = await fetch(`${BASE}/api/v1/enhance_speech_tracks?time=${nowMs()}`, {
     method: 'POST',
     headers: { ...H, 'content-type': 'application/json' },
@@ -125,20 +123,66 @@ async function enhanceFile(inPath, opts = {}) {
   }
   if (!downloadUrl) throw new Error('Timeout esperando el procesamiento');
 
-  // 5) descargar al lado del original con sufijo _enhanced
+  // 5) descargar la voz limpia (enhanced)
   onStatus('descargando');
-  const dl = await fetch(downloadUrl, { method: 'GET' });
-  if (!dl.ok) throw new Error(`download ${dl.status}`);
-  const buf = Buffer.from(await dl.arrayBuffer());
+  const cleanBuf = await downloadBuf(downloadUrl);
 
-  // Mismo nombre, dentro de una subcarpeta "Enhanced" junto al original.
   const outDir = path.join(path.dirname(inPath), 'Enhanced');
   fs.mkdirSync(outDir, { recursive: true });
   const stem = path.basename(name, ext);
-  const outPath = path.join(outDir, `${stem}.wav`);
-  fs.writeFileSync(outPath, buf);
+  const finalPath = path.join(outDir, `${stem}.wav`);
+
+  const wantBlend = cleanPct < 100 && ffmpeg;
+  if (!wantBlend) {
+    // 100% (o sin ffmpeg): voz limpia directo en Enhanced/
+    fs.writeFileSync(finalPath, cleanBuf);
+    onStatus('listo', 100);
+    return { ok: true, outPath: finalPath, cleanVoice: 100 };
+  }
+
+  // <100%: guardar la voz limpia en Enhanced/Clean voice/ y dejar la mezcla afuera
+  const cleanDir = path.join(outDir, 'Clean voice');
+  fs.mkdirSync(cleanDir, { recursive: true });
+  fs.writeFileSync(path.join(cleanDir, `${stem}.wav`), cleanBuf);
+
+  // bajar el original para la mezcla dry/wet
+  const origMeta = await (await fetch(`${BASE}/api/v1/enhance_speech_tracks/${trackId}/original_audio?time=${nowMs()}`, { headers: H })).json();
+  const origBuf = await downloadBuf(origMeta.url);
+
+  // archivos temporales para ffmpeg
+  const tmp = os.tmpdir();
+  const tClean = path.join(tmp, `ape_${trackId}_clean.wav`);
+  const tOrig = path.join(tmp, `ape_${trackId}_orig.bin`);
+  fs.writeFileSync(tClean, cleanBuf);
+  fs.writeFileSync(tOrig, origBuf);
+  try {
+    await blend(ffmpeg, tClean, tOrig, cleanPct / 100, finalPath);
+  } finally {
+    try { fs.unlinkSync(tClean); } catch {}
+    try { fs.unlinkSync(tOrig); } catch {}
+  }
   onStatus('listo', 100);
-  return { ok: true, outPath };
+  return { ok: true, outPath: finalPath, cleanVoice: cleanPct };
+}
+
+async function downloadBuf(url) {
+  const r = await fetch(url, { method: 'GET' });
+  if (!r.ok) throw new Error(`download ${r.status}`);
+  return Buffer.from(await r.arrayBuffer());
+}
+
+// Mezcla dry/wet: salida = wClean*limpia + (1-wClean)*original (alineadas, mono 48k).
+function blend(ffmpeg, cleanPath, origPath, wClean, outPath) {
+  const w0 = wClean.toFixed(3), w1 = (1 - wClean).toFixed(3);
+  const args = ['-y', '-i', cleanPath, '-i', origPath, '-filter_complex',
+    `[0:a]aresample=48000,aformat=channel_layouts=mono[a];[1:a]aresample=48000,aformat=channel_layouts=mono[b];[a][b]amix=inputs=2:weights=${w0} ${w1}:normalize=0:duration=first[out]`,
+    '-map', '[out]', '-c:a', 'pcm_s16le', outPath];
+  return new Promise((res, rej) => {
+    execFile(ffmpeg, args, { maxBuffer: 1 << 26 }, (err, _so, se) => {
+      if (err) rej(new Error('ffmpeg: ' + (se || err.message).toString().slice(0, 200)));
+      else res();
+    });
+  });
 }
 
 async function safeText(res) {

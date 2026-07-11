@@ -16,9 +16,12 @@ de audios y te devuelve todos limpios, cada uno junto al original.
 - ⚡ **Procesa 5 a la vez** con cola y estado por archivo.
 - ⏳ **Manejo de créditos** — si Adobe corta por límite, muestra una cuenta
   regresiva y **reanuda solo** cuando se libera.
-- 🎚️ Sliders Speech / Music / Background (default 80 / 0 / 0), guardados.
+- 🎚️ Slider **Voz limpia %** (dry/wet): 100% = voz totalmente limpia; menos =
+  mezcla local con el original para un resultado más natural (motor ffmpeg bundleado).
 - ⚡ Procesa hasta **5 audios en paralelo**.
 - 💾 **Salida** con el mismo nombre en una carpeta `Enhanced/` junto al original.
+  Al 100% la voz limpia sale directo en `Enhanced/`; con menos de 100% la mezcla
+  final queda en `Enhanced/` y la voz 100% limpia se guarda en `Enhanced/Clean voice/`.
 
 ## Descargar
 

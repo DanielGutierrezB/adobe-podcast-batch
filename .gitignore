@@ -9,3 +9,4 @@ token.txt
 *.zip
 .DS_Store
 build/icon.iconset/
+build/ffmpeg/

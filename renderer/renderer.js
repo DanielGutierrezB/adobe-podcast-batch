@@ -3,21 +3,20 @@ const $ = (id) => document.getElementById(id);
 let queue = [];          // [{ path, name, state, pct, error, el }]
 let connected = false;
 let processing = false;
-let settings = { mix: { speech: 80, music: 0, background: 0 }, model: 'v2' };
+let settings = { cleanVoice: 80, model: 'v2' };
 let limitTimer = null;
 
 const basename = (p) => p.split('/').pop();
 
 async function init() {
   settings = await window.api.getSettings();
-  ['speech', 'music', 'background'].forEach(k => {
-    $(k).value = settings.mix[k];
-    $(k + 'Val').textContent = settings.mix[k] + '%';
-    $(k).addEventListener('input', () => {
-      settings.mix[k] = Number($(k).value);
-      $(k + 'Val').textContent = $(k).value + '%';
-      window.api.saveSettings(settings);
-    });
+  if (settings.cleanVoice == null) settings.cleanVoice = 80;
+  $('cleanVoice').value = settings.cleanVoice;
+  updateCleanUI(settings.cleanVoice);
+  $('cleanVoice').addEventListener('input', () => {
+    settings.cleanVoice = Number($('cleanVoice').value);
+    updateCleanUI(settings.cleanVoice);
+    window.api.saveSettings(settings);
   });
   refreshConn(await window.api.tokenStatus());
 
@@ -52,6 +51,15 @@ async function init() {
 
   setupDrop();
   renderAll();
+}
+
+function updateCleanUI(v) {
+  $('cleanVal').textContent = v + '%';
+  if (Number(v) >= 100) {
+    $('cleanHint').innerHTML = 'Voz 100% limpia → sale directo en <code>Enhanced/</code>.';
+  } else {
+    $('cleanHint').innerHTML = `Mezcla ${v}% limpia + ${100 - v}% original → sale en <code>Enhanced/</code>. La voz 100% limpia se guarda en <code>Enhanced/Clean voice/</code>.`;
+  }
 }
 
 async function onConnect() {
@@ -93,7 +101,7 @@ async function start() {
   $('stopBtn').style.display = ''; $('stopBtn').textContent = '■ Detener';
   updateStart();
   pending.forEach(it => { it.state = 'en cola'; it.error = null; renderItem(it); });
-  await window.api.startBatch({ files: pending.map(p => p.path), mix: settings.mix, model: settings.model });
+  await window.api.startBatch({ files: pending.map(p => p.path), cleanVoice: settings.cleanVoice, model: settings.model });
   processing = false;
   $('stopBtn').style.display = 'none';
   updateStart();

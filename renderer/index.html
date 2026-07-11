@@ -18,22 +18,14 @@
 
   <main>
     <section class="panel">
-      <h2>Ajustes de mezcla</h2>
+      <h2>Voz limpia</h2>
       <div class="sliders">
         <div class="slider-row">
-          <label>Speech <span class="val" id="speechVal">80%</span></label>
-          <input type="range" id="speech" min="0" max="100" value="80" />
-        </div>
-        <div class="slider-row">
-          <label>Music <span class="val" id="musicVal">0%</span></label>
-          <input type="range" id="music" min="0" max="100" value="0" />
-        </div>
-        <div class="slider-row">
-          <label>Background <span class="val" id="backgroundVal">0%</span></label>
-          <input type="range" id="background" min="0" max="100" value="0" />
+          <label>Nivel de limpieza <span class="val" id="cleanVal">80%</span></label>
+          <input type="range" id="cleanVoice" min="0" max="100" value="80" />
         </div>
       </div>
-      <p class="hint">Se guardan como valores por defecto. Salida: carpeta <code>Enhanced/</code> junto al original (mismo nombre).</p>
+      <p class="hint" id="cleanHint"></p>
     </section>
 
     <section class="panel">

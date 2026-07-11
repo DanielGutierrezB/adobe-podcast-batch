@@ -14,7 +14,18 @@ let cancelFlag = false;
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() {
   try { return JSON.parse(fs.readFileSync(settingsPath(), 'utf8')); }
-  catch { return { mix: { speech: 80, music: 0, background: 0 }, model: 'v2', token: null }; }
+  catch { return { cleanVoice: 80, model: 'v2', token: null }; }
+}
+
+// Resuelve el binario de ffmpeg: 1) bundleado en resources/bin, 2) ffmpeg-static, 3) PATH.
+function ffmpegPath() {
+  const name = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  try {
+    const bundled = path.join(process.resourcesPath || '', 'bin', name);
+    if (fs.existsSync(bundled)) return bundled;
+  } catch {}
+  try { const s = require('ffmpeg-static'); if (s && fs.existsSync(s)) return s; } catch {}
+  return name; // fallback al PATH del sistema
 }
 function saveSettings(s) { try { fs.writeFileSync(settingsPath(), JSON.stringify(s, null, 2)); } catch {} }
 function persistToken(tok) {
@@ -107,7 +118,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 // ─── IPC ───
 ipcMain.handle('get-settings', () => { const s = loadSettings(); delete s.token; return s; });
 ipcMain.handle('save-settings', (_e, s) => {
-  const cur = loadSettings(); saveSettings({ ...cur, mix: s.mix, model: s.model }); return true;
+  const cur = loadSettings(); saveSettings({ ...cur, cleanVoice: s.cleanVoice, model: s.model }); return true;
 });
 ipcMain.handle('connect-adobe', async () => {
   const tok = await connectAdobe();
@@ -141,9 +152,10 @@ ipcMain.handle('pick-folder', async () => {
 ipcMain.handle('stop-batch', () => { cancelFlag = true; return true; });
 
 // Procesa una lista con concurrencia + backoff por límite de créditos.
-ipcMain.handle('start-batch', async (_e, { files, mix, model }) => {
+ipcMain.handle('start-batch', async (_e, { files, cleanVoice, model }) => {
   if (!currentToken) return { ok: false, error: 'No conectado a Adobe' };
   cancelFlag = false;
+  const ffmpeg = ffmpegPath();
   const send = (ch, data) => { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send(ch, data); };
   const queue = [...files];
   let index = 0;
@@ -153,7 +165,8 @@ ipcMain.handle('start-batch', async (_e, { files, mix, model }) => {
       if (cancelFlag) return { ok: false, error: 'cancelado' };
       try {
         return await enhanceFile(filePath, {
-          token: currentToken, model: model || 'v2', mix: mix || null,
+          token: currentToken, model: model || 'v2',
+          cleanVoice: cleanVoice == null ? 100 : cleanVoice, ffmpeg,
           onStatus: (state, pct) => send('status', { filePath, state, pct }),
         });
       } catch (err) {
