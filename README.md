@@ -17,7 +17,8 @@ de audios y te devuelve todos limpios, cada uno junto al original.
 - ⏳ **Manejo de créditos** — si Adobe corta por límite, muestra una cuenta
   regresiva y **reanuda solo** cuando se libera.
 - 🎚️ Sliders Speech / Music / Background (default 80 / 0 / 0), guardados.
-- 💾 **Salida junto al original** con sufijo `_enhanced.wav`.
+- ⚡ Procesa hasta **5 audios en paralelo**.
+- 💾 **Salida** con el mismo nombre en una carpeta `Enhanced/` junto al original.
 
 ## Descargar
 

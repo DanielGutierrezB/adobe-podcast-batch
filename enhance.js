@@ -131,15 +131,11 @@ async function enhanceFile(inPath, opts = {}) {
   if (!dl.ok) throw new Error(`download ${dl.status}`);
   const buf = Buffer.from(await dl.arrayBuffer());
 
-  const dir = path.dirname(inPath);
+  // Mismo nombre, dentro de una subcarpeta "Enhanced" junto al original.
+  const outDir = path.join(path.dirname(inPath), 'Enhanced');
+  fs.mkdirSync(outDir, { recursive: true });
   const stem = path.basename(name, ext);
-  let outPath = path.join(dir, `${stem}_enhanced.wav`);
-  // no pisar si ya existe
-  let n = 2;
-  while (fs.existsSync(outPath)) {
-    outPath = path.join(dir, `${stem}_enhanced_${n}.wav`);
-    n++;
-  }
+  const outPath = path.join(outDir, `${stem}.wav`);
   fs.writeFileSync(outPath, buf);
   onStatus('listo', 100);
   return { ok: true, outPath };
