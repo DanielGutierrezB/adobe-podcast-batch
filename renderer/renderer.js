@@ -5,8 +5,9 @@ let connected = false;
 let processing = false;
 let settings = { cleanVoice: 80, model: 'v2' };
 let limitTimer = null;
+let lastOutPath = null;
 
-const basename = (p) => p.split('/').pop();
+const basename = (p) => p.split(/[/\\]/).pop();
 
 async function init() {
   settings = await window.api.getSettings();
@@ -33,14 +34,16 @@ async function init() {
   $('connectBtn').onclick = onConnect;
   $('addFiles').onclick = async () => addToQueue(await window.api.pickFiles());
   $('addFolder').onclick = async () => addToQueue(await window.api.pickFolder());
-  $('clearBtn').onclick = () => { if (!processing) { queue = []; renderAll(); saveQueue(); } };
+  $('clearBtn').onclick = () => { if (!processing) { queue = []; lastOutPath = null; $('openFolderBtn').style.display = 'none'; renderAll(); saveQueue(); } };
   $('startBtn').onclick = start;
   $('stopBtn').onclick = () => { window.api.stopBatch(); $('stopBtn').textContent = 'Deteniendo…'; };
+  $('openFolderBtn').onclick = () => { if (lastOutPath) window.api.reveal(lastOutPath); };
 
   // eventos desde main
   window.api.onStatus(({ filePath, state, pct }) => updateItem(filePath, { state, pct }));
-  window.api.onDone(({ filePath, ok, error }) => {
-    updateItem(filePath, ok ? { state: 'listo', pct: 100 } : { state: 'error', error });
+  window.api.onDone(({ filePath, ok, error, outPath }) => {
+    updateItem(filePath, ok ? { state: 'listo', pct: 100, outPath } : { state: 'error', error });
+    if (ok && outPath) lastOutPath = outPath;
     bumpOverall();
     saveQueue();
   });
@@ -48,6 +51,14 @@ async function init() {
   window.api.onAuthExpired(() => { connected = false; refreshConn({ connected: false }); });
   window.api.onLimit(({ seconds }) => showLimit(seconds));
   window.api.onLimitClear(() => hideLimit());
+
+  // clic en un ítem terminado → abrir su carpeta
+  $('queue').addEventListener('click', (e) => {
+    const li = e.target.closest('.item');
+    if (!li) return;
+    const it = queue.find(q => q.el === li);
+    if (it && it.state === 'listo' && it.outPath) window.api.reveal(it.outPath);
+  });
 
   setupDrop();
   renderAll();
@@ -104,6 +115,7 @@ async function start() {
   await window.api.startBatch({ files: pending.map(p => p.path), cleanVoice: settings.cleanVoice, model: settings.model });
   processing = false;
   $('stopBtn').style.display = 'none';
+  if (lastOutPath) $('openFolderBtn').style.display = '';
   updateStart();
 }
 function bumpOverall() {

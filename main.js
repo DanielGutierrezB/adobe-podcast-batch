@@ -1,5 +1,5 @@
 // main.js — proceso principal de Electron
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { enhanceFile, listAudios } = require('./enhance');
@@ -150,6 +150,18 @@ ipcMain.handle('pick-folder', async () => {
 });
 
 ipcMain.handle('stop-batch', () => { cancelFlag = true; return true; });
+
+// Revela un archivo en Finder/Explorer; si es carpeta, la abre.
+ipcMain.handle('reveal', (_e, p) => {
+  try {
+    if (p && fs.existsSync(p)) {
+      const st = fs.statSync(p);
+      if (st.isDirectory()) shell.openPath(p); else shell.showItemInFolder(p);
+      return true;
+    }
+  } catch {}
+  return false;
+});
 
 // Procesa una lista con concurrencia + backoff por límite de créditos.
 ipcMain.handle('start-batch', async (_e, { files, cleanVoice, model }) => {
