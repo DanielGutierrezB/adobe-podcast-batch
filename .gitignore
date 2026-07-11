@@ -10,3 +10,5 @@ token.txt
 .DS_Store
 build/icon.iconset/
 build/ffmpeg/
+premiere-plugin/bin/ffmpeg
+premiere-plugin/bin/ffmpeg.exe

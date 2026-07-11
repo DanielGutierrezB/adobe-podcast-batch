@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="css/style.css" />
+  <title>Adobe Podcast Enhance</title>
+</head>
+<body>
+  <!-- iconos SVG (defs reutilizables) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <g id="i-mic"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></g>
+      <g id="i-download"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 21h16"/></g>
+      <g id="i-gear"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V15z"/></g>
+      <g id="i-load"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></g>
+      <g id="i-play"><path d="M7 5l12 7-12 7z"/></g>
+      <g id="i-trash"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 14h10l1-14"/></g>
+      <g id="i-refresh"><path d="M20 11a8 8 0 1 0-.5 4"/><path d="M20 4v5h-5"/></g>
+      <g id="i-broom"><path d="M14 3l7 7"/><path d="M5 21l4-9 8 8-9 4-3-3z"/></g>
+      <g id="i-clock"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></g>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <div class="brand"><svg class="ic ic-brand" viewBox="0 0 24 24"><use href="#i-mic"/></svg><span>Podcast Enhance</span></div>
+    <div class="hdr-right">
+      <button id="updateBtn" class="btn-update" data-tip="Busca la última versión en GitHub y actualiza. Si no hay update, recarga el panel (sin cerrarlo).">
+        <svg class="ic upic" viewBox="0 0 24 24"><use href="#i-refresh"/></svg><span id="versionLabel">v1.1.0</span>
+      </button>
+      <button id="gearBtn" class="btn secondary tiny" data-tip="Conectá tu cuenta de Adobe y ajustes del panel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-gear"/></svg> Ajustes</button>
+    </div>
+  </header>
+
+  <div class="statusbar">
+    <span class="conn"><span class="dot" id="dot"></span><span id="connText">Desconectado</span></span>
+    <button id="dlLogBtn" class="btn secondary tiny" data-tip="Guarda un .md con todo el detalle del proceso, para depurar problemas"><svg class="ic" viewBox="0 0 24 24"><use href="#i-download"/></svg> Descargar log</button>
+  </div>
+
+  <!-- ⚙️ Configuración (login) -->
+  <section id="configPanel" class="config" style="display:none">
+    <div class="config-title">Conectar cuenta de Adobe (1 sola vez)</div>
+    <ol class="steps">
+      <li><button id="openAdobeBtn" class="btn secondary small">1 · Abrir Adobe en el navegador</button></li>
+      <li>2 · En esa página (logueado): Consola <code>⌥⌘I</code> → pegá<br><code>copy(adobeIMS.getAccessToken().token)</code></li>
+      <li>3 · Pegá acá y dale Usar token:</li>
+    </ol>
+    <input id="tokenInput" type="text" placeholder="eyJ..." />
+    <button id="useTokenBtn" class="btn primary">Usar token</button>
+    <details class="manual">
+      <summary>Probar login embebido (experimental)</summary>
+      <button id="connectBtn" class="btn secondary small">Conectar con Adobe (iframe)</button>
+      <div id="loginWrap" class="loginWrap" style="display:none">
+        <iframe id="adobeFrame" class="adobeFrame"></iframe>
+        <button id="loginCancel" class="btn ghost small">Cancelar login</button>
+      </div>
+    </details>
+    <button id="logoutBtn" class="btn ghost small" style="display:none">Cerrar sesión</button>
+  </section>
+
+  <div class="settings">
+    <div class="slider-row">
+      <label>Voz limpia <span class="val" id="cleanVal">80%</span></label>
+      <input type="range" id="cleanVoice" min="0" max="100" value="80" />
+    </div>
+    <label class="check"><input type="checkbox" id="muteOthers" checked /> Mutear las otras pistas</label>
+  </div>
+
+  <main>
+    <div id="limitBanner" class="banner" hidden>
+      <svg class="ic" viewBox="0 0 24 24"><use href="#i-clock"/></svg>
+      <span id="limitText"></span>
+    </div>
+
+    <div class="primary-actions">
+      <button id="loadBtn" class="btn secondary" data-tip="Trae a la lista las secuencias abiertas en tu línea de tiempo"><svg class="ic" viewBox="0 0 24 24"><use href="#i-load"/></svg> Cargar secuencias</button>
+      <button id="runBtn" class="btn primary" disabled data-tip="Procesa las pendientes: exporta el audio, limpia la voz con Adobe y la coloca en la secuencia"><svg class="ic" viewBox="0 0 24 24"><use href="#i-play"/></svg> Procesar</button>
+    </div>
+
+    <div class="toolbar">
+      <label class="check selall" data-tip="Seleccionar o quitar la selección de todas"><input type="checkbox" id="selectAll" /> Todo</label>
+      <span id="queueCount" class="count">0 secuencias</span>
+      <div class="spacer"></div>
+      <button id="reprocessBtn" class="btn secondary tiny" data-tip="Vuelve a procesar las secuencias tildadas, aunque ya estén listas" disabled><svg class="ic" viewBox="0 0 24 24"><use href="#i-refresh"/></svg> Reprocesar</button>
+      <button id="removeSelBtn" class="btn secondary tiny" data-tip="Saca de la lista las secuencias tildadas" disabled><svg class="ic" viewBox="0 0 24 24"><use href="#i-trash"/></svg> Quitar</button>
+      <button id="clearDoneBtn" class="btn secondary tiny" data-tip="Saca de la lista las que ya están listas ✓"><svg class="ic" viewBox="0 0 24 24"><use href="#i-broom"/></svg> Limpiar</button>
+    </div>
+
+    <ul id="queueList" class="seqs"></ul>
+    <div id="queueEmpty" class="queue-empty">Dale <b>Cargar secuencias</b> para traer las abiertas en tu timeline.</div>
+  </main>
+
+  <footer id="toast" class="toast" data-type="info">
+    <svg class="ic tic" viewBox="0 0 24 24"><use href="#i-clock"/></svg>
+    <span id="toastText">Listo para trabajar.</span>
+  </footer>
+
+  <script src="lib/CSInterface.js"></script>
+  <script src="js/enhance.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
