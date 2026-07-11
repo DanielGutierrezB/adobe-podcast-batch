@@ -22,9 +22,13 @@ de audios y te devuelve todos limpios, cada uno junto al original.
 
 ## Descargar
 
-Bajá el DMG desde la sección [**Releases**](../../releases/latest).
-Como la app no está firmada con Apple, la primera vez abrila con
-**clic derecho → Abrir**.
+Desde la sección [**Releases**](../../releases/latest):
+
+- **macOS (Apple Silicon):** `Adobe-Podcast-Batch-1.0.0-arm64.dmg`
+  Como no está firmada con Apple, la primera vez abrila con **clic derecho → Abrir**.
+- **Windows (x64):** `Adobe-Podcast-Batch-1.0.0-win-x64.zip`
+  Descomprimí y ejecutá `Adobe Podcast Batch.exe`. Windows SmartScreen puede
+  pedir **Más información → Ejecutar de todas formas** (app sin firmar).
 
 ## Desarrollo
 
@@ -32,8 +36,14 @@ Como la app no está firmada con Apple, la primera vez abrila con
 npm install
 npm start          # correr en dev
 npm run icon       # regenerar el ícono (build/icon.icns)
-npm run dist       # empaquetar DMG en dist/
+npm run dist       # empaquetar DMG de macOS en dist/
+
+# Windows (portable .zip) — se compila desde cualquier SO, sin wine:
+npx electron-packager . "Adobe Podcast Batch" --platform=win32 --arch=x64 \
+  --icon=build/icon.ico --overwrite --out=build-win --ignore=dist --ignore=build-win
 ```
+
+Multiplataforma: **macOS (Apple Silicon)** y **Windows (x64)**.
 
 ## Cómo funciona
 

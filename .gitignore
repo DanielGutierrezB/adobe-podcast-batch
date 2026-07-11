@@ -1,6 +1,7 @@
 node_modules/
 dist/
 out/
+build-win/
 settings.json
 token.txt
 *.dmg

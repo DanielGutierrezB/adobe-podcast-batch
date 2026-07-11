@@ -23,12 +23,13 @@ function persistToken(tok) {
 }
 
 function createWindow() {
+  const isMac = process.platform === 'darwin';
   mainWin = new BrowserWindow({
     width: 960, height: 740, minWidth: 640, minHeight: 520,
     title: 'Adobe Podcast Batch',
-    titleBarStyle: 'hiddenInset',
+    ...(isMac ? { titleBarStyle: 'hiddenInset' } : {}),
     backgroundColor: '#0f1115',
-    icon: path.join(__dirname, 'build', 'icon.icns'),
+    icon: path.join(__dirname, 'build', isMac ? 'icon.icns' : 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false,

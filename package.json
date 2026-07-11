@@ -13,15 +13,22 @@
   "devDependencies": {
     "@electron/packager": "^20.0.2",
     "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "png-to-ico": "^3.0.2"
   },
   "build": {
     "appId": "com.danielgutierrez.adobepodcastbatch",
     "productName": "Adobe Podcast Batch",
-    "directories": { "output": "dist", "buildResources": "build" },
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
     "files": [
-      "main.js", "preload.js", "enhance.js",
-      "renderer/**/*", "build/icon.icns"
+      "main.js",
+      "preload.js",
+      "enhance.js",
+      "renderer/**/*",
+      "build/icon.icns"
     ],
     "mac": {
       "target": "dmg",
@@ -29,6 +36,8 @@
       "category": "public.app-category.productivity",
       "identity": null
     },
-    "dmg": { "title": "Adobe Podcast Batch ${version}" }
+    "dmg": {
+      "title": "Adobe Podcast Batch ${version}"
+    }
   }
 }
