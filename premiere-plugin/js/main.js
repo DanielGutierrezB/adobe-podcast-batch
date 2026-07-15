@@ -2,10 +2,8 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.1';
+var APP_VERSION = '1.1.2';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
-var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
-var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
 var pathN, fsN, osN, cp, enhanceToFile, EXT, FFMPEG, WAV_PRESET;
 var token = null;
 var latestAsset = null;
@@ -51,25 +49,48 @@ function markConnected(kind) {
   $('connectBtn').textContent = 'Reconectar'; $('logoutBtn').style.display = '';
 }
 
-// ── login Adobe: ventana modal propia (login.html) ──
-// La ventana es un ModalDialog CEP: al ser una ventana top-level, los clics y el
-// teclado le llegan directo (Premiere no intercepta shortcuts como en el panel).
-// Cuando consigue el token, lo guarda en el archivo y dispara TOKEN_EVENT.
-function openLoginWindow() {
-  log('Login: abriendo ventana modal…');
-  try { cs.requestOpenExtension(LOGIN_EXT_ID, ''); }
-  catch (e) { notify('No pude abrir la ventana de login: ' + (e.message || e), 'error'); }
+// ── login Adobe: ventana propia vía window.open ──
+// window.open crea una ventana top-level de verdad (no un iframe embebido en
+// el panel), así que los clics y el teclado le llegan directo — Premiere solo
+// intercepta eventos dentro del panel embebido, no en ventanas separadas.
+// No requiere declarar nada en el manifest, así que no hace falta reiniciar
+// Premiere para que funcione tras una actualización.
+var authPopup = null;
+var authPoll = null;
+function connect() {
+  if (authPopup && !authPopup.closed) { cancelLogin(); return; }
+  log('Login: abriendo ventana de Adobe…');
+  authPopup = window.open(
+    'https://podcast.adobe.com/en/enhance', 'AdobePodcastLogin',
+    'width=520,height=760,resizable=yes,scrollbars=yes,status=no,toolbar=no,menubar=no,location=no'
+  );
+  if (!authPopup) { notify('El navegador bloqueó la ventana de login. Reintentá el clic.', 'error'); return; }
+  $('connectBtn').textContent = 'Cancelar login';
+  if (authPoll) clearInterval(authPoll);
+  authPoll = setInterval(function () {
+    if (!authPopup || authPopup.closed) { stopAuthPoll(); return; }
+    try {
+      var t = authPopup.adobeIMS && authPopup.adobeIMS.getAccessToken && authPopup.adobeIMS.getAccessToken();
+      var tok = t && (t.token || t.tokenValue);
+      if (tok && tok.indexOf('eyJ') === 0) {
+        token = tok; saveToken(tok);
+        try { authPopup.close(); } catch (e) {}
+        stopAuthPoll();
+        markConnected(); $('configPanel').style.display = 'none';
+        notify('Conectado a Adobe.', 'success');
+      }
+    } catch (e) {}
+  }, 1200);
 }
-cs.addEventListener(TOKEN_EVENT, function (ev) {
-  try {
-    var tok = typeof ev.data === 'string' ? ev.data : (ev.data && ev.data.token);
-    if (tok && tok.indexOf('eyJ') === 0) {
-      token = tok; saveToken(tok);
-      markConnected(); $('configPanel').style.display = 'none';
-      notify('Conectado a Adobe.', 'success');
-    }
-  } catch (e) { log('token event err: ' + (e.message || e)); }
-});
+function stopAuthPoll() {
+  if (authPoll) { clearInterval(authPoll); authPoll = null; }
+  authPopup = null;
+  $('connectBtn').textContent = token ? 'Reconectar' : 'Conectar con Adobe';
+}
+function cancelLogin() {
+  if (authPopup && !authPopup.closed) { try { authPopup.close(); } catch (e) {} }
+  stopAuthPoll();
+}
 function useManualToken() {
   var v = ($('tokenInput').value || '').trim();
   if (v.indexOf('eyJ') !== 0) { notify('Ese texto no parece un token (debe empezar con eyJ).', 'error'); return; }
@@ -299,7 +320,7 @@ async function processItems(pending) {
 $('gearBtn').addEventListener('click', toggleConfig);
 $('updateBtn').addEventListener('click', doUpdate);
 $('dlLogBtn').addEventListener('click', downloadLog);
-$('connectBtn').addEventListener('click', openLoginWindow);
+$('connectBtn').addEventListener('click', connect);
 $('useTokenBtn').addEventListener('click', useManualToken);
 $('openAdobeBtn').addEventListener('click', openAdobe);
 $('logoutBtn').addEventListener('click', logout);

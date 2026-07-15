@@ -11,11 +11,14 @@ Incluye el slider **Voz limpia %** (dry/wet local con ffmpeg bundleado).
 
 ## Login (ventana propia)
 
-El botón **Conectar con Adobe** abre una ventana modal del propio bundle CEP con
-la página de login de Adobe. Al ser una ventana top-level (no un iframe dentro
-del panel), los clics y el teclado funcionan normal y Premiere no intercepta
-los atajos. Cuando el login termina, el token se guarda solo y la ventana se
-cierra. Como plan B sigue estando la opción de pegar el token a mano (⚙️).
+El botón **Conectar con Adobe** abre la página de login con `window.open()`:
+una ventana real del sistema (no un iframe embebido en el panel), así que los
+clics y el teclado funcionan normal — Premiere solo intercepta atajos dentro
+del panel embebido, no en ventanas separadas. No requiere declarar nada en el
+manifest, así que **una actualización de esto no exige reiniciar Premiere**
+(alcanza con recargar el panel, botón ⟳). Cuando el login termina, el token se
+guarda solo y la ventana se cierra; mientras está abierta, el mismo botón la
+cancela. Como plan B sigue estando la opción de pegar el token a mano (⚙️).
 
 ## Preset de export (opcional pero recomendado)
 
@@ -41,7 +44,7 @@ Reiniciá Premiere y abrila en **Ventana → Extensiones → Adobe Podcast Enhan
 ## Estado
 
 - ✅ Panel, login/token, motor de enhance, slider Voz limpia %, ffmpeg bundleado.
-- Para depurar: Chrome → `localhost:8098` (panel) y `localhost:8099` (ventana de login).
+- Para depurar: Chrome → `localhost:8098` (panel).
 
 ## Notas
 
