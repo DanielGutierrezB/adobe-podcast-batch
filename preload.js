@@ -1,7 +1,12 @@
 // preload.js — puente seguro entre renderer y main
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { STATES } = require('./enhance');
 
 contextBridge.exposeInMainWorld('api', {
+  // contrato de estados compartido con el motor (premiere-plugin/js/phonos.js)
+  STATES,
+  // Electron ≥32 eliminó File.path: la ruta de un archivo arrastrado se obtiene acá.
+  pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return null; } },
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (s) => ipcRenderer.invoke('save-settings', s),
   connectAdobe: () => ipcRenderer.invoke('connect-adobe'),

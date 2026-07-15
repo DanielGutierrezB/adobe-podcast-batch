@@ -1,5 +1,6 @@
 // renderer.js — lógica de la UI
 const $ = (id) => document.getElementById(id);
+const S = window.api.STATES;      // contrato de estados compartido con el motor
 let queue = [];          // [{ path, name, state, pct, error, el }]
 let connected = false;
 let processing = false;
@@ -26,8 +27,8 @@ async function init() {
     const saved = await window.api.getQueue();
     queue = (saved || []).map(x => ({
       path: x.path, name: x.name || basename(x.path),
-      state: x.state === 'listo' ? 'listo' : 'en espera',
-      pct: x.state === 'listo' ? 100 : 0,
+      state: x.state === S.LISTO ? S.LISTO : S.EN_ESPERA,
+      pct: x.state === S.LISTO ? 100 : 0,
     }));
   } catch {}
 
@@ -42,7 +43,7 @@ async function init() {
   // eventos desde main
   window.api.onStatus(({ filePath, state, pct }) => updateItem(filePath, { state, pct }));
   window.api.onDone(({ filePath, ok, error, outPath }) => {
-    updateItem(filePath, ok ? { state: 'listo', pct: 100, outPath } : { state: 'error', error });
+    updateItem(filePath, ok ? { state: S.LISTO, pct: 100, outPath } : { state: S.ERROR, error });
     if (ok && outPath) lastOutPath = outPath;
     bumpOverall();
     saveQueue();
@@ -57,7 +58,7 @@ async function init() {
     const li = e.target.closest('.item');
     if (!li) return;
     const it = queue.find(q => q.el === li);
-    if (it && it.state === 'listo' && it.outPath) window.api.reveal(it.outPath);
+    if (it && it.state === S.LISTO && it.outPath) window.api.reveal(it.outPath);
   });
 
   setupDrop();
@@ -88,7 +89,7 @@ function refreshConn(r) {
 
 function addToQueue(paths) {
   for (const p of paths) {
-    if (!queue.find(q => q.path === p)) queue.push({ path: p, name: basename(p), state: 'en espera', pct: 0 });
+    if (!queue.find(q => q.path === p)) queue.push({ path: p, name: basename(p), state: S.EN_ESPERA, pct: 0 });
   }
   renderAll();
   saveQueue();
@@ -97,7 +98,7 @@ function addToQueue(paths) {
 function saveQueue() {
   try {
     window.api.saveQueue(queue.map(q => ({
-      path: q.path, name: q.name, state: q.state === 'listo' ? 'listo' : 'pendiente',
+      path: q.path, name: q.name, state: q.state === S.LISTO ? S.LISTO : 'pendiente',
     })));
   } catch {}
 }
@@ -106,12 +107,12 @@ function updateStart() { $('startBtn').disabled = processing || !connected || qu
 let doneCount = 0, totalToDo = 0;
 async function start() {
   if (processing) return;
-  const pending = queue.filter(q => q.state !== 'listo');
+  const pending = queue.filter(q => q.state !== S.LISTO);
   if (!pending.length) return;
   processing = true; doneCount = 0; totalToDo = pending.length;
   $('stopBtn').style.display = ''; $('stopBtn').textContent = '■ Detener';
   updateStart();
-  pending.forEach(it => { it.state = 'en cola'; it.error = null; renderItem(it); });
+  pending.forEach(it => { it.state = S.EN_COLA; it.error = null; renderItem(it); });
   await window.api.startBatch({ files: pending.map(p => p.path), cleanVoice: settings.cleanVoice, model: settings.model });
   processing = false;
   $('stopBtn').style.display = 'none';
@@ -139,26 +140,34 @@ function hideLimit() { clearInterval(limitTimer); limitTimer = null; $('limitBan
 
 // ─── render en sitio (sin reconstruir toda la lista) ───
 function stateClass(s) {
-  if (s === 'listo') return 'done';
-  if (s === 'error') return 'error';
-  if (['subiendo', 'procesando', 'descargando', 'en cola', 'esperando'].includes(s)) return 'working';
+  if (s === S.LISTO) return 'done';
+  if (s === S.ERROR) return 'error';
+  if ([S.SUBIENDO, S.PROCESANDO, S.DESCARGANDO, S.EN_COLA, S.ESPERANDO].includes(s)) return 'working';
   return '';
 }
 function stateIcon(s) {
-  return { 'listo': '✅', 'error': '⚠️', 'subiendo': '↑', 'procesando': '⚙️', 'descargando': '↓',
-    'en cola': '…', 'esperando': '⏳', 'en espera': '•' }[s] || '•';
+  return {
+    [S.LISTO]: '✅', [S.ERROR]: '⚠️', [S.SUBIENDO]: '↑', [S.PROCESANDO]: '⚙️',
+    [S.DESCARGANDO]: '↓', [S.EN_COLA]: '…', [S.ESPERANDO]: '⏳', [S.EN_ESPERA]: '•',
+  }[s] || '•';
 }
-function itemHTML(it) {
-  const label = it.error ? 'error' : (it.state === 'procesando' && it.pct ? `procesando ${it.pct}%` : it.state);
-  return `<span class="ico">${stateIcon(it.state)}</span>
-    <span class="name" title="${it.path}">${it.name}</span>
-    <span class="state">${label}</span>`;
+// Construye el contenido del <li> con textContent (los nombres de archivo no son HTML confiable).
+function fillItem(li, it) {
+  li.textContent = '';
+  const ico = document.createElement('span');
+  ico.className = 'ico'; ico.textContent = stateIcon(it.state);
+  const name = document.createElement('span');
+  name.className = 'name'; name.textContent = it.name; name.title = it.path;
+  const state = document.createElement('span');
+  state.className = 'state';
+  state.textContent = it.error ? S.ERROR : (it.state === S.PROCESANDO && it.pct ? `procesando ${it.pct}%` : it.state);
+  if (it.error) state.title = it.error;
+  li.append(ico, name, state);
 }
 function renderItem(it) {
   if (!it.el) return renderAll();
   it.el.className = 'item ' + stateClass(it.state);
-  it.el.innerHTML = itemHTML(it);
-  if (it.error) it.el.querySelector('.state').title = it.error;
+  fillItem(it.el, it);
 }
 function updateItem(filePath, patch) {
   const it = queue.find(q => q.path === filePath);
@@ -173,7 +182,7 @@ function renderAll() {
   for (const it of queue) {
     const li = document.createElement('li');
     li.className = 'item ' + stateClass(it.state);
-    li.innerHTML = itemHTML(it);
+    fillItem(li, it);
     it.el = li;
     ul.appendChild(li);
   }
@@ -186,7 +195,8 @@ function setupDrop() {
   b.addEventListener('dragleave', (e) => { if (e.target === b) b.classList.remove('dragging'); });
   b.addEventListener('drop', (e) => {
     e.preventDefault(); b.classList.remove('dragging');
-    const paths = [...e.dataTransfer.files].map(f => f.path).filter(Boolean);
+    // File.path no existe desde Electron 32: la ruta la resuelve el preload (webUtils)
+    const paths = [...e.dataTransfer.files].map(f => window.api.pathForFile(f)).filter(Boolean);
     if (paths.length) addToQueue(paths);
   });
 }
