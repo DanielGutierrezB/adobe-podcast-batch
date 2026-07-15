@@ -2,11 +2,11 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.5';
+var APP_VERSION = '1.1.6';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
-var pathN, fsN, osN, cp, enhanceToFile, EXT, FFMPEG, WAV_PRESET;
+var pathN, fsN, osN, cp, enhanceToFile, checkToken, isTokenExpired, EXT, FFMPEG, WAV_PRESET;
 var token = null;
 var latestAsset = null;
 var queue = [];            // [{id, name, done, error, state}]
@@ -27,7 +27,8 @@ try {
   FFMPEG = pathN.join(EXT, 'bin', osN.platform() === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
   WAV_PRESET = pathN.join(EXT, 'presets', 'wav-24-mono-48.epr');
   try { fsN.chmodSync(FFMPEG, 0o755); } catch (e) {}
-  enhanceToFile = _require(pathN.join(EXT, 'js', 'phonos.js')).enhanceToFile;
+  var phonos = _require(pathN.join(EXT, 'js', 'phonos.js'));
+  enhanceToFile = phonos.enhanceToFile; checkToken = phonos.checkToken; isTokenExpired = phonos.isTokenExpired;
   log('Panel iniciado.');
   try {
     var hostEnv = JSON.parse(cs.getHostEnvironment());
@@ -119,11 +120,42 @@ async function trySilentReauth(reason) {
   log('Reauth silenciosa: sin sesión activa.');
   return null;
 }
-function useManualToken() {
+
+// ── verificación al abrir: ¿el token guardado sigue sirviendo? ──
+// checkToken es local (vencimiento del propio JWT) + un GET de solo lectura al
+// endpoint de PERFIL de Adobe IMS — no toca Adobe Podcast, no gasta créditos.
+async function verifyConnection() {
+  if (!token) return;
+  if (isTokenExpired && isTokenExpired(token)) {
+    log('Token vencido (según su payload) → reauth…');
+    if (!(await trySilentReauth('token vencido'))) markDisconnected('Sesión vencida — reconectá (⚙️).');
+    return;
+  }
+  var ok = checkToken ? await checkToken(token) : null;
+  if (ok === true) { markConnected('verificado'); log('Token verificado ✓ (sin gastar créditos).'); return; }
+  if (ok === false) {
+    log('Token rechazado por Adobe → reauth…');
+    if (!(await trySilentReauth('token rechazado'))) markDisconnected('Sesión vencida — reconectá (⚙️).');
+    return;
+  }
+  log('Verificación de token no concluyente (¿sin red?) — se mantiene el estado.');
+}
+function markDisconnected(msg) {
+  $('dot').classList.remove('on');
+  $('connText').textContent = 'Desconectado';
+  $('connectBtn').textContent = 'Conectar con Adobe';
+  $('configPanel').style.display = 'block';
+  if (msg) notify(msg, 'warn');
+}
+async function useManualToken() {
   var v = ($('tokenInput').value || '').trim();
   if (v.indexOf('eyJ') !== 0) { notify('Ese texto no parece un token (debe empezar con eyJ).', 'error'); return; }
+  notify('Verificando token…', 'info');
+  var ok = checkToken ? await checkToken(v) : null;   // solo lectura, no gasta créditos
+  if (ok === false) { notify('Adobe rechazó ese token (¿vencido o mal copiado?). Copialo de nuevo.', 'error'); return; }
   token = v; saveToken(v); $('tokenInput').value = '';
-  markConnected('manual'); $('configPanel').style.display = 'none'; notify('Conectado (token guardado).', 'success');
+  markConnected('manual'); $('configPanel').style.display = 'none';
+  notify(ok === true ? 'Conectado (token verificado ✓).' : 'Conectado (no pude verificar, sin red).', 'success');
 }
 function openAdobe() {
   try { window.cep.util.openURLInDefaultBrowser('https://podcast.adobe.com/en/enhance'); }
@@ -406,12 +438,8 @@ renderQueue();
 try { $('versionLabel').textContent = 'v' + APP_VERSION; } catch (e) {}
 try { loadProjectQueue(); } catch (e) {}
 try { setTimeout(checkUpdate, 1200); } catch (e) {}
-// refresca el token en silencio al abrir el panel (misma sesión persistida
-// que usa la app de escritorio) — si funciona, ni hace falta tocar "Conectar".
-try {
-  setTimeout(function () {
-    trySilentReauth('inicio').then(function (tok) { if (tok) $('configPanel').style.display = 'none'; });
-  }, 1500);
-} catch (e) {}
+// al abrir: valida el token guardado (chequeo local + GET de solo lectura a
+// IMS, sin gastar créditos) y solo reautentica en silencio si hace falta.
+try { setTimeout(function () { verifyConnection(); }, 1500); } catch (e) {}
 // restaurar contador de límite si sigue vigente
 (function () { var l = loadLimit && loadLimit(); if (l && l.retryAt && l.retryAt > Date.now()) { showLimit(l.retryAt, l.reported || Date.now()); log('Límite activo restaurado.'); } })();

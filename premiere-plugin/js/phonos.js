@@ -194,6 +194,47 @@ function blend(ffmpeg, cleanPath, origPath, wClean, outPath, codec) {
   });
 }
 
+// ── validación de token (sin gastar créditos) ──
+
+// Decodifica el payload del JWT de Adobe IMS (sin verificar firma; solo lectura local).
+function tokenInfo(token) {
+  try {
+    const p = JSON.parse(Buffer.from(String(token).split('.')[1], 'base64').toString('utf8'));
+    let expiresAt = null;
+    if (p.exp) expiresAt = Number(p.exp) * 1000;                       // JWT estándar (segundos)
+    else if (p.created_at && p.expires_in)                             // formato IMS (ms en strings)
+      expiresAt = Number(p.created_at) + Number(p.expires_in);
+    return { expiresAt, clientId: p.client_id || null, email: p.email || p.user_id || null };
+  } catch { return { expiresAt: null, clientId: null, email: null }; }
+}
+
+// ¿El token ya venció según su propio payload? (chequeo local, gratis, sin red)
+function isTokenExpired(token, marginMs = 60000) {
+  const { expiresAt } = tokenInfo(token);
+  return expiresAt != null && Date.now() > expiresAt - marginMs;
+}
+
+// Chequeo remoto liviano: valida el token contra el endpoint de PERFIL de Adobe
+// IMS (identidad) — es de solo lectura y NO toca Adobe Podcast, así que no
+// consume créditos. Devuelve true (válido), false (rechazado) o null (no
+// concluyente: sin red, 5xx, etc. — no tomar decisiones destructivas con null).
+async function checkToken(token) {
+  if (!token) return false;
+  if (isTokenExpired(token)) return false;
+  const { clientId } = tokenInfo(token);
+  const auth = /^bearer /i.test(token) ? token : `Bearer ${token}`;
+  const url = clientId
+    ? `https://ims-na1.adobelogin.com/ims/profile/v1?client_id=${encodeURIComponent(clientId)}`
+    : `${BASE}/api/v1/enhance_speech_tracks?time=${nowMs()}`; // fallback: GET de solo lectura
+  try {
+    const r = await fetch(url, {
+      headers: clientId ? { 'authorization': auth } : baseHeaders(token),
+    });
+    if (r.status === 401 || r.status === 403) return false;
+    return r.ok ? true : null;
+  } catch { return null; }
+}
+
 async function safeText(res) {
   try { return (await res.text()).slice(0, 300); } catch { return ''; }
 }
@@ -223,4 +264,4 @@ function makeLimitError(json) {
   return e;
 }
 
-module.exports = { enhanceToFile, STATES, MIME, AUDIO_EXTS };
+module.exports = { enhanceToFile, checkToken, tokenInfo, isTokenExpired, STATES, MIME, AUDIO_EXTS };
