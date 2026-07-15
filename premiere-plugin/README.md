@@ -11,14 +11,24 @@ Incluye el slider **Voz limpia %** (dry/wet local con ffmpeg bundleado).
 
 ## Login (ventana propia) y persistencia de la sesión
 
-El botón **Conectar con Adobe** abre la página de login con `window.open()`:
-una ventana real del sistema (no un iframe embebido en el panel), así que los
-clics y el teclado funcionan normal — Premiere solo intercepta atajos dentro
-del panel embebido, no en ventanas separadas. No requiere declarar nada en el
-manifest, así que **una actualización de esto no exige reiniciar Premiere**
-(alcanza con recargar el panel, botón ⟳). Cuando el login termina, el token se
-guarda solo y la ventana se cierra; mientras está abierta, el mismo botón la
-cancela. Como plan B sigue estando la opción de pegar el token a mano (⚙️).
+`window.open()` **no está soportado en CEP** — Adobe lo bloquea a propósito
+(confirmado en la comunidad de developers de CEP; probamos usarlo en una
+versión anterior y efectivamente tira "el navegador bloqueó la ventana"). La
+vía que Adobe recomienda para logins de terceros/SSO es declarar una segunda
+extensión de tipo `ModalDialog` en el manifest: CEP la abre como ventana
+nativa propia, sin pasar por el bloqueador de popups de Chromium. El botón
+**Conectar con Adobe** hace eso.
+
+⚠️ Como es una extensión **nueva** en el manifest, CEP solo la detecta al
+reiniciar Premiere — reiniciá la app una vez después de instalar una versión
+que la agregue (no alcanza con recargar el panel). Además, CEP 11/12 endureció
+la seguridad de iframes cross-origin (aislamiento de sitios); agregamos
+`--disable-site-isolation-trials` al `CEFCommandLine` para mitigarlo, pero no
+tenemos forma de probarlo fuera de Premiere real — **si la ventana de login
+tampoco te deja clickear**, usá el desplegable **"pegar el token a mano"**
+(⚙️): abre Adobe en tu navegador normal (sin restricciones de CEP), logueate,
+copiás el token con una línea en la consola y lo pegás. Es más manual pero
+100% confiable porque no depende de ninguna de las restricciones de CEP.
 
 El **token** (lo que expira, típicamente en horas) y la **sesión de Adobe**
 (la cookie de login, que dura mucho más) son cosas distintas. El panel:
@@ -27,8 +37,10 @@ El **token** (lo que expira, típicamente en horas) y la **sesión de Adobe**
 - Al abrir el panel, y cada vez que el token vence a mitad de un lote,
   intenta refrescarlo **solo** con un iframe invisible (sin mostrar nada ni
   pedir clic) mientras la sesión de Adobe siga viva — el mismo mecanismo que
-  usa la app de escritorio. Si la sesión también venció, ahí sí pide
-  reconectar manualmente.
+  usa la app de escritorio. Esto también depende del aislamiento de iframes
+  cross-origin de CEP; si el log muestra siempre "sin sesión activa" incluso
+  recién logueado, esa parte no está funcionando en tu versión de CEP y toca
+  reconectar a mano cuando el token venza.
 
 ## Preset de export (opcional pero recomendado)
 
