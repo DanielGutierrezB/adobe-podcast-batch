@@ -1,7 +1,7 @@
 # Adobe Podcast Enhance — Panel para Premiere Pro (CEP)
 
 Panel (HTML/CSS/JS + ExtendScript) que dentro de Premiere:
-1. Te logueás en tu cuenta de Adobe (login embebido, token automático).
+1. Te logueás en tu cuenta de Adobe (ventana de login propia, token automático).
 2. **Revisa las secuencias** del proyecto y elegís cuáles procesar.
 3. Exporta el audio de cada secuencia a **WAV 24-bit / mono / 48 kHz**.
 4. Lo procesa con **Adobe Podcast Enhance** (mismo motor de la app).
@@ -9,18 +9,27 @@ Panel (HTML/CSS/JS + ExtendScript) que dentro de Premiere:
 
 Incluye el slider **Voz limpia %** (dry/wet local con ffmpeg bundleado).
 
-## ⚠️ Paso único: crear el preset de export
+## Login (ventana propia)
 
-Premiere necesita un preset `.epr` para exportar el audio con tu spec exacta.
-Hay que crearlo **una vez**:
+El botón **Conectar con Adobe** abre una ventana modal del propio bundle CEP con
+la página de login de Adobe. Al ser una ventana top-level (no un iframe dentro
+del panel), los clics y el teclado funcionan normal y Premiere no intercepta
+los atajos. Cuando el login termina, el token se guarda solo y la ventana se
+cierra. Como plan B sigue estando la opción de pegar el token a mano (⚙️).
 
-1. En Premiere: **Archivo → Exportar → Medios** (con una secuencia activa).
-2. Formato **Waveform Audio (WAV)** → Audio: **48000 Hz**, **24 bit**, **Mono**.
-3. Al lado de "Ajuste preestablecido" → **Guardar preajuste** → nombre libre.
-4. Ese `.epr` se guarda en tu carpeta de presets de Adobe. Copialo a:
-   `<extensión>/presets/wav-24-mono-48.epr`
+## Preset de export (opcional pero recomendado)
 
-(Si el panel dice "falta preset", es esto.)
+El panel exporta cada secuencia a WAV. Busca el preset en este orden:
+
+1. `<extensión>/presets/wav-24-mono-48.epr` — tu preset exacto (48 kHz / 24 bit / mono).
+2. Un preset cacheado o uno WAV de los systempresets de Media Encoder.
+3. Último recurso: genera uno abriendo Media Encoder (una sola vez, se cachea).
+
+Para crear el tuyo: **Archivo → Exportar → Medios** → formato **Waveform Audio
+(WAV)**, Audio **48000 Hz / 24 bit / Mono** → **Guardar preajuste**, y copiá el
+`.epr` a `<extensión>/presets/wav-24-mono-48.epr`.
+
+(Si el panel dice "sin preset WAV", es esto.)
 
 ## Instalar (modo desarrollo)
 
@@ -32,9 +41,11 @@ Reiniciá Premiere y abrila en **Ventana → Extensiones → Adobe Podcast Enhan
 ## Estado
 
 - ✅ Panel, login/token, motor de enhance, slider Voz limpia %, ffmpeg bundleado.
-- ⏳ **Sin probar dentro de Premiere** — la parte ExtendScript (export/import/mute) se
-  ajusta con la primera corrida real. Para depurar: Chrome → `localhost:8098`.
+- Para depurar: Chrome → `localhost:8098` (panel) y `localhost:8099` (ventana de login).
 
 ## Notas
 
+- El motor de Adobe Podcast vive en `js/phonos.js` y es el MISMO módulo que usa
+  la app de escritorio (única fuente de verdad, sin copias).
+- Empaquetar el ZXP: `npm run zxp` (desde la raíz del repo) → `dist/podcast-enhance-<versión>.zxp`.
 - Proyecto no oficial, sin relación con Adobe. El token se maneja en memoria del panel.

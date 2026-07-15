@@ -25,7 +25,7 @@
     <div class="brand"><svg class="ic ic-brand" viewBox="0 0 24 24"><use href="#i-mic"/></svg><span>Podcast Enhance</span></div>
     <div class="hdr-right">
       <button id="updateBtn" class="btn-update" data-tip="Busca la última versión en GitHub y actualiza. Si no hay update, recarga el panel (sin cerrarlo).">
-        <svg class="ic upic" viewBox="0 0 24 24"><use href="#i-refresh"/></svg><span id="versionLabel">v1.1.0</span>
+        <svg class="ic upic" viewBox="0 0 24 24"><use href="#i-refresh"/></svg><span id="versionLabel"></span>
       </button>
       <button id="gearBtn" class="btn secondary tiny" data-tip="Conectá tu cuenta de Adobe y ajustes del panel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-gear"/></svg> Ajustes</button>
     </div>
@@ -39,20 +39,16 @@
   <!-- ⚙️ Configuración (login) -->
   <section id="configPanel" class="config" style="display:none">
     <div class="config-title">Conectar cuenta de Adobe (1 sola vez)</div>
-    <ol class="steps">
-      <li><button id="openAdobeBtn" class="btn secondary small">1 · Abrir Adobe en el navegador</button></li>
-      <li>2 · En esa página (logueado): Consola <code>⌥⌘I</code> → pegá<br><code>copy(adobeIMS.getAccessToken().token)</code></li>
-      <li>3 · Pegá acá y dale Usar token:</li>
-    </ol>
-    <input id="tokenInput" type="text" placeholder="eyJ..." />
-    <button id="useTokenBtn" class="btn primary">Usar token</button>
+    <button id="connectBtn" class="btn primary" data-tip="Abre una ventana propia con el login de Adobe. Al terminar, el token se guarda solo.">Conectar con Adobe</button>
     <details class="manual">
-      <summary>Probar login embebido (experimental)</summary>
-      <button id="connectBtn" class="btn secondary small">Conectar con Adobe (iframe)</button>
-      <div id="loginWrap" class="loginWrap" style="display:none">
-        <iframe id="adobeFrame" class="adobeFrame"></iframe>
-        <button id="loginCancel" class="btn ghost small">Cancelar login</button>
-      </div>
+      <summary>Alternativa: pegar el token a mano</summary>
+      <ol class="steps">
+        <li><button id="openAdobeBtn" class="btn secondary small">1 · Abrir Adobe en el navegador</button></li>
+        <li>2 · En esa página (logueado): Consola <code>⌥⌘I</code> → pegá<br><code>copy(adobeIMS.getAccessToken().token)</code></li>
+        <li>3 · Pegá acá y dale Usar token:</li>
+      </ol>
+      <input id="tokenInput" type="text" placeholder="eyJ..." />
+      <button id="useTokenBtn" class="btn primary">Usar token</button>
     </details>
     <button id="logoutBtn" class="btn ghost small" style="display:none">Cerrar sesión</button>
   </section>
@@ -95,7 +91,6 @@
   </footer>
 
   <script src="lib/CSInterface.js"></script>
-  <script src="js/enhance.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

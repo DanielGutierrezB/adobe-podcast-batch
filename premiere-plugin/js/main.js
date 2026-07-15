@@ -2,9 +2,11 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.0';
+var APP_VERSION = '1.1.1';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
-var pathN, fsN, osN, cp, enhanceToFile, EXT, FFMPEG;
+var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
+var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
+var pathN, fsN, osN, cp, enhanceToFile, EXT, FFMPEG, WAV_PRESET;
 var token = null;
 var latestAsset = null;
 var queue = [];            // [{id, name, done, error, state}]
@@ -23,8 +25,9 @@ try {
   pathN = _require('path'); fsN = _require('fs'); osN = _require('os'); cp = _require('child_process');
   EXT = cs.getSystemPath(SystemPath.EXTENSION);
   FFMPEG = pathN.join(EXT, 'bin', osN.platform() === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+  WAV_PRESET = pathN.join(EXT, 'presets', 'wav-24-mono-48.epr');
   try { fsN.chmodSync(FFMPEG, 0o755); } catch (e) {}
-  enhanceToFile = _require(pathN.join(EXT, 'js', 'enhance.js')).enhanceToFile;
+  enhanceToFile = _require(pathN.join(EXT, 'js', 'phonos.js')).enhanceToFile;
   log('Panel iniciado.');
   try {
     var hostEnv = JSON.parse(cs.getHostEnvironment());
@@ -48,27 +51,25 @@ function markConnected(kind) {
   $('connectBtn').textContent = 'Reconectar'; $('logoutBtn').style.display = '';
 }
 
-// ── login Adobe ──
-var authPoll = null;
-function connect() {
-  log('Login iframe: abriendo…');
-  var f = $('adobeFrame'); $('loginWrap').style.display = 'block'; $('connectBtn').textContent = 'Logueate abajo…';
-  f.src = 'https://podcast.adobe.com/en/enhance';
-  if (authPoll) clearInterval(authPoll);
-  authPoll = setInterval(function () {
-    try {
-      var w = f.contentWindow;
-      var t = w && w.adobeIMS && w.adobeIMS.getAccessToken && w.adobeIMS.getAccessToken();
-      var tok = t && (t.token || t.tokenValue);
-      if (tok && tok.indexOf('eyJ') === 0) {
-        clearInterval(authPoll); token = tok; saveToken(tok);
-        $('loginWrap').style.display = 'none'; f.src = 'about:blank';
-        markConnected(); $('configPanel').style.display = 'none'; notify('Conectado a Adobe.', 'success');
-      }
-    } catch (e) {}
-  }, 1500);
+// ── login Adobe: ventana modal propia (login.html) ──
+// La ventana es un ModalDialog CEP: al ser una ventana top-level, los clics y el
+// teclado le llegan directo (Premiere no intercepta shortcuts como en el panel).
+// Cuando consigue el token, lo guarda en el archivo y dispara TOKEN_EVENT.
+function openLoginWindow() {
+  log('Login: abriendo ventana modal…');
+  try { cs.requestOpenExtension(LOGIN_EXT_ID, ''); }
+  catch (e) { notify('No pude abrir la ventana de login: ' + (e.message || e), 'error'); }
 }
-function cancelLogin() { if (authPoll) clearInterval(authPoll); $('adobeFrame').src = 'about:blank'; $('loginWrap').style.display = 'none'; $('connectBtn').textContent = token ? 'Reconectar' : 'Conectar con Adobe (iframe)'; }
+cs.addEventListener(TOKEN_EVENT, function (ev) {
+  try {
+    var tok = typeof ev.data === 'string' ? ev.data : (ev.data && ev.data.token);
+    if (tok && tok.indexOf('eyJ') === 0) {
+      token = tok; saveToken(tok);
+      markConnected(); $('configPanel').style.display = 'none';
+      notify('Conectado a Adobe.', 'success');
+    }
+  } catch (e) { log('token event err: ' + (e.message || e)); }
+});
 function useManualToken() {
   var v = ($('tokenInput').value || '').trim();
   if (v.indexOf('eyJ') !== 0) { notify('Ese texto no parece un token (debe empezar con eyJ).', 'error'); return; }
@@ -80,7 +81,7 @@ function openAdobe() {
   catch (e) { try { cs.openURLInDefaultBrowser('https://podcast.adobe.com/en/enhance'); } catch (e2) { log('Abrí a mano: podcast.adobe.com/enhance'); } }
 }
 function toggleConfig() { var p = $('configPanel'); p.style.display = (p.style.display === 'none') ? 'block' : 'none'; }
-function logout() { token = null; clearToken(); $('dot').classList.remove('on'); $('connText').textContent = 'Desconectado'; $('connectBtn').textContent = 'Conectar con Adobe (iframe)'; $('logoutBtn').style.display = 'none'; log('Sesión cerrada.'); }
+function logout() { token = null; clearToken(); $('dot').classList.remove('on'); $('connText').textContent = 'Desconectado'; $('connectBtn').textContent = 'Conectar con Adobe'; $('logoutBtn').style.display = 'none'; log('Sesión cerrada.'); }
 function downloadLog() {
   try {
     var out = pathN.join(osN.homedir(), 'Downloads', 'podcast-enhance-log.md');
@@ -204,14 +205,21 @@ async function loadSequences() {
   renderQueue(); saveProjectQueue();
 }
 
+// Construye cada <li> con createElement/textContent: los nombres de secuencia
+// vienen de Premiere y no son HTML confiable.
 function renderQueue() {
   var ul = $('queueList'); ul.innerHTML = '';
   queue.forEach(function (q) {
     var li = document.createElement('li');
     li.setAttribute('data-id', q.id);
     li.className = q.done ? 'done' : (q.error ? 'err' : '');
-    li.innerHTML = '<input type="checkbox" data-id="' + q.id + '"/><span class="name">' + q.name + '</span>' +
-      '<span class="st">' + (q.state || (q.done ? '✓ listo' : 'en espera')) + '</span>';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.setAttribute('data-id', q.id);
+    var name = document.createElement('span');
+    name.className = 'name'; name.textContent = q.name;
+    var st = document.createElement('span');
+    st.className = 'st'; st.textContent = q.state || (q.done ? '✓ listo' : 'en espera');
+    li.appendChild(cb); li.appendChild(name); li.appendChild(st);
     ul.appendChild(li);
   });
   $('queueEmpty').style.display = queue.length ? 'none' : 'block';
@@ -262,11 +270,11 @@ async function processItems(pending) {
     notify('(' + (i + 1) + '/' + pending.length + ') ' + it.name + ' — exportando…', 'info');
     try {
       setSt(id, 'exportando…', 'work');
-      var ex = JSON.parse(await evalES('ppExportAudio(' + esStr(id) + ', ' + esStr(tmpExport) + ')'));
+      var ex = JSON.parse(await evalES('ppExportAudio(' + esStr(id) + ', ' + esStr(tmpExport) + ', ' + esStr(WAV_PRESET) + ')'));
       if (!ex.ok) { it.error = true; errN++; setSt(id, ex.error === 'NO_PRESET' ? 'sin preset WAV' : 'error export', 'err'); log('  ✗ export: ' + ex.error); notify('⚠ ' + it.name + ': error al exportar.', 'error'); continue; }
       log('  · exportado: ' + tmpExport);
       setSt(id, 'procesando…', 'work'); notify('(' + (i + 1) + '/' + pending.length + ') ' + it.name + ' — limpiando voz…', 'info');
-      await enhanceToFile(tmpExport, finalOut, { token: token, cleanVoice: cleanVoice, ffmpeg: FFMPEG, onStatus: (function (x) { return function (st, pct) { setSt(x, st + (pct ? ' ' + pct + '%' : ''), 'work'); }; })(id) });
+      await enhanceToFile(tmpExport, finalOut, { token: token, cleanVoice: cleanVoice, ffmpeg: FFMPEG, codec: 'pcm_s24le', onStatus: (function (x) { return function (st, pct) { setSt(x, st + (pct ? ' ' + pct + '%' : ''), 'work'); }; })(id) });
       log('  · enhance ok: ' + finalOut);
       setSt(id, 'colocando…', 'work');
       var pl = JSON.parse(await evalES('ppPlaceEnhanced(' + esStr(id) + ', ' + esStr(finalOut) + ', ' + muteOthers + ')'));
@@ -291,8 +299,7 @@ async function processItems(pending) {
 $('gearBtn').addEventListener('click', toggleConfig);
 $('updateBtn').addEventListener('click', doUpdate);
 $('dlLogBtn').addEventListener('click', downloadLog);
-$('connectBtn').addEventListener('click', connect);
-$('loginCancel').addEventListener('click', cancelLogin);
+$('connectBtn').addEventListener('click', openLoginWindow);
 $('useTokenBtn').addEventListener('click', useManualToken);
 $('openAdobeBtn').addEventListener('click', openAdobe);
 $('logoutBtn').addEventListener('click', logout);
