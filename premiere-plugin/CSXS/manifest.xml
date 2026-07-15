@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ExtensionManifest Version="7.0" ExtensionBundleId="com.danielgutierrez.adobepodcastpremiere"
-    ExtensionBundleVersion="1.1.6" ExtensionBundleName="Adobe Podcast Enhance"
+    ExtensionBundleVersion="1.1.7" ExtensionBundleName="Adobe Podcast Enhance"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.danielgutierrez.adobepodcastpremiere.panel" Version="1.1.6"/>
-    <Extension Id="com.danielgutierrez.adobepodcastpremiere.login" Version="1.1.6"/>
+    <Extension Id="com.danielgutierrez.adobepodcastpremiere.panel" Version="1.1.7"/>
+    <Extension Id="com.danielgutierrez.adobepodcastpremiere.login" Version="1.1.7"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>

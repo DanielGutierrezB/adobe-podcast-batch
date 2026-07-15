@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.6';
+var APP_VERSION = '1.1.7';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -128,14 +128,14 @@ async function verifyConnection() {
   if (!token) return;
   if (isTokenExpired && isTokenExpired(token)) {
     log('Token vencido (según su payload) → reauth…');
-    if (!(await trySilentReauth('token vencido'))) markDisconnected('Sesión vencida — reconectá (⚙️).');
+    if (!(await trySilentReauth('token vencido'))) requestReconnect('Sesión vencida — logueate en la ventana.');
     return;
   }
   var ok = checkToken ? await checkToken(token) : null;
   if (ok === true) { markConnected('verificado'); log('Token verificado ✓ (sin gastar créditos).'); return; }
   if (ok === false) {
     log('Token rechazado por Adobe → reauth…');
-    if (!(await trySilentReauth('token rechazado'))) markDisconnected('Sesión vencida — reconectá (⚙️).');
+    if (!(await trySilentReauth('token rechazado'))) requestReconnect('Sesión vencida — logueate en la ventana.');
     return;
   }
   log('Verificación de token no concluyente (¿sin red?) — se mantiene el estado.');
@@ -146,6 +146,14 @@ function markDisconnected(msg) {
   $('connectBtn').textContent = 'Conectar con Adobe';
   $('configPanel').style.display = 'block';
   if (msg) notify(msg, 'warn');
+}
+// Nada funcionó (token muerto y sin sesión viva): marcar desconectado y abrir
+// directamente la ventana de login para que el usuario se reconecte ahí.
+// Si la ventana aún no está registrada (falta reiniciar Premiere),
+// openLoginWindow ya muestra el aviso correspondiente.
+function requestReconnect(msg) {
+  markDisconnected(msg);
+  openLoginWindow();
 }
 async function useManualToken() {
   var v = ($('tokenInput').value || '').trim();
@@ -373,7 +381,9 @@ async function processItems(pending) {
         var freshTok = await trySilentReauth('401 al procesar ' + nm);
         if (freshTok) { i--; continue; }   // la sesión seguía viva: reintenta el mismo archivo con el token nuevo
         it.error = true; errN++;
-        setSt(id, 'sesión expiró', 'err'); log('  ✗ Sesión expirada.'); notify('Sesión expirada — reconectá (⚙️).', 'error'); stopped = true; break;
+        setSt(id, 'sesión expiró', 'err'); log('  ✗ Sesión expirada.');
+        requestReconnect('Sesión expirada — logueate y volvé a dar Procesar.');
+        stopped = true; break;
       }
       it.error = true; errN++;
       setSt(id, 'error', 'err'); log('  ✗ ' + (e.message || e)); notify('⚠ ' + it.name + ': ' + (e.message || e), 'error');
