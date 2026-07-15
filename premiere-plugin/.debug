@@ -5,4 +5,9 @@
       <Host Name="PPRO" Port="8098"/>
     </HostList>
   </Extension>
+  <Extension Id="com.danielgutierrez.adobepodcastpremiere.login">
+    <HostList>
+      <Host Name="PPRO" Port="8099"/>
+    </HostList>
+  </Extension>
 </ExtensionList>
