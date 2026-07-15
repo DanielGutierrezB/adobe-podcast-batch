@@ -71,10 +71,13 @@ function _findOrCreatePreset() {
   var cached = base + '/APEnhance_wav_preset.epr';
   if (new File(cached).exists) return cached;
 
-  // 2) presets del sistema (SIN abrir Media Encoder)
+  // 2) presets del sistema (SIN abrir Media Encoder) — ruta distinta en Mac/Windows
+  var isWin = String($.os || '').toLowerCase().indexOf('windows') >= 0;
   var years = ['2026', '2025', '2024', '2023'];
   for (var y = 0; y < years.length; y++) {
-    var sp = '/Applications/Adobe Media Encoder ' + years[y] + '/Adobe Media Encoder ' + years[y] + '.app/Contents/MediaIO/systempresets';
+    var sp = isWin
+      ? 'C:/Program Files/Adobe/Adobe Media Encoder ' + years[y] + '/MediaIO/systempresets'
+      : '/Applications/Adobe Media Encoder ' + years[y] + '/Adobe Media Encoder ' + years[y] + '.app/Contents/MediaIO/systempresets';
     var fold = new Folder(sp);
     if (fold.exists) {
       var files = fold.getFiles('*.epr');

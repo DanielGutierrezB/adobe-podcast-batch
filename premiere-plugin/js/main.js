@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.2';
+var APP_VERSION = '1.1.3';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var pathN, fsN, osN, cp, enhanceToFile, EXT, FFMPEG, WAV_PRESET;
 var token = null;
@@ -90,6 +90,42 @@ function stopAuthPoll() {
 function cancelLogin() {
   if (authPopup && !authPopup.closed) { try { authPopup.close(); } catch (e) {} }
   stopAuthPoll();
+}
+
+// ── reautenticación silenciosa (mismo mecanismo que la app de escritorio) ──
+// La SESIÓN de Adobe (cookies del navegador embebido) suele durar mucho más
+// que el TOKEN cacheado. Un iframe invisible —sin mostrar nada ni pedir
+// clics— puede refrescar el token solo mientras esa sesión siga viva.
+function silentReauth(timeoutMs) {
+  return new Promise(function (resolve) {
+    var f = document.createElement('iframe');
+    f.style.cssText = 'position:absolute;width:1px;height:1px;left:-9999px;top:-9999px;border:0;';
+    f.src = 'https://podcast.adobe.com/en/enhance';
+    document.body.appendChild(f);
+    var done = false, poll = null, to = null;
+    function finish(tok) {
+      if (done) return; done = true;
+      clearInterval(poll); clearTimeout(to);
+      try { f.parentNode && f.parentNode.removeChild(f); } catch (e) {}
+      resolve(tok || null);
+    }
+    poll = setInterval(function () {
+      try {
+        var w = f.contentWindow;
+        var t = w && w.adobeIMS && w.adobeIMS.getAccessToken && w.adobeIMS.getAccessToken();
+        var tok = t && (t.token || t.tokenValue);
+        if (tok && tok.indexOf('eyJ') === 0) finish(tok);
+      } catch (e) {}
+    }, 1000);
+    to = setTimeout(function () { finish(null); }, timeoutMs || 12000);
+  });
+}
+async function trySilentReauth(reason) {
+  log('Reauth silenciosa' + (reason ? ' (' + reason + ')' : '') + '…');
+  var tok = await silentReauth(12000);
+  if (tok) { token = tok; saveToken(tok); markConnected('sesión'); log('Reauth silenciosa OK.'); return tok; }
+  log('Reauth silenciosa: sin sesión activa.');
+  return null;
 }
 function useManualToken() {
   var v = ($('tokenInput').value || '').trim();
@@ -304,9 +340,18 @@ async function processItems(pending) {
       it.done = true; okN++; setSt(id, '✓ listo', 'done'); log('  ✓ colocado en track ' + pl.track + ' / ' + pl.totalTracks);
       notify('✓ ' + it.name + ' lista (track ' + pl.track + ').', 'success');
     } catch (e) {
+      if (e.code === 'LIMIT') {
+        it.error = true; errN++;
+        setSt(id, 'sin créditos', 'err'); log('  ⏳ Sin créditos' + (e.retrySeconds ? ' (~' + Math.ceil(e.retrySeconds / 60) + ' min)' : '') + ' retryAt=' + (e.retryAt || '?')); triggerLimit(e.retrySeconds); notify('⏳ Sin créditos de Adobe — mirá el contador arriba.', 'warn'); stopped = true; break;
+      }
+      if (e.code === 'AUTH') {
+        setSt(id, 'reautenticando…', 'work');
+        var freshTok = await trySilentReauth('401 al procesar ' + nm);
+        if (freshTok) { i--; continue; }   // la sesión seguía viva: reintenta el mismo archivo con el token nuevo
+        it.error = true; errN++;
+        setSt(id, 'sesión expiró', 'err'); log('  ✗ Sesión expirada.'); notify('Sesión expirada — reconectá (⚙️).', 'error'); stopped = true; break;
+      }
       it.error = true; errN++;
-      if (e.code === 'LIMIT') { setSt(id, 'sin créditos', 'err'); log('  ⏳ Sin créditos' + (e.retrySeconds ? ' (~' + Math.ceil(e.retrySeconds / 60) + ' min)' : '') + ' retryAt=' + (e.retryAt || '?')); triggerLimit(e.retrySeconds); notify('⏳ Sin créditos de Adobe — mirá el contador arriba.', 'warn'); stopped = true; break; }
-      if (e.code === 'AUTH') { setSt(id, 'sesión expiró', 'err'); log('  ✗ Sesión expirada.'); notify('Sesión expirada — reconectá (⚙️).', 'error'); stopped = true; break; }
       setSt(id, 'error', 'err'); log('  ✗ ' + (e.message || e)); notify('⚠ ' + it.name + ': ' + (e.message || e), 'error');
     } finally { try { fsN.unlinkSync(tmpExport); } catch (e) {} }
   }
@@ -369,5 +414,12 @@ renderQueue();
 try { $('versionLabel').textContent = 'v' + APP_VERSION; } catch (e) {}
 try { loadProjectQueue(); } catch (e) {}
 try { setTimeout(checkUpdate, 1200); } catch (e) {}
+// refresca el token en silencio al abrir el panel (misma sesión persistida
+// que usa la app de escritorio) — si funciona, ni hace falta tocar "Conectar".
+try {
+  setTimeout(function () {
+    trySilentReauth('inicio').then(function (tok) { if (tok) $('configPanel').style.display = 'none'; });
+  }, 1500);
+} catch (e) {}
 // restaurar contador de límite si sigue vigente
 (function () { var l = loadLimit && loadLimit(); if (l && l.retryAt && l.retryAt > Date.now()) { showLimit(l.retryAt, l.reported || Date.now()); log('Límite activo restaurado.'); } })();
