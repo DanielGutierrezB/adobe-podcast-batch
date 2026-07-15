@@ -1,8 +1,9 @@
 // main.js — proceso principal de Electron
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { enhanceFile, listAudios } = require('./enhance');
+const { listAudios } = require('./enhance');
+const { runBatch } = require('./batch');
 
 const CONCURRENCY = 5;              // audios en paralelo
 const ADOBE_PARTITION = 'persist:adobe';
@@ -11,10 +12,36 @@ let mainWin = null;
 let currentToken = null;
 let cancelFlag = false;
 
+// ─── settings (solo preferencias de UI; el token vive aparte) ───
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() {
   try { return JSON.parse(fs.readFileSync(settingsPath(), 'utf8')); }
-  catch { return { cleanVoice: 80, model: 'v2', token: null }; }
+  catch { return { cleanVoice: 80, model: 'v2' }; }
+}
+function saveSettings(s) { try { fs.writeFileSync(settingsPath(), JSON.stringify(s, null, 2)); } catch {} }
+
+// ─── token: archivo propio, cifrado con safeStorage cuando el SO lo permite ───
+const tokenPath = () => path.join(app.getPath('userData'), 'token.dat');
+function loadStoredToken() {
+  try {
+    const raw = fs.readFileSync(tokenPath());
+    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');
+  } catch { return null; }
+}
+function persistToken(tok) {
+  currentToken = tok;
+  try {
+    const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(tok) : Buffer.from(tok, 'utf8');
+    fs.writeFileSync(tokenPath(), data);
+  } catch {}
+}
+// migración: versiones viejas guardaban el token en texto plano dentro de settings.json
+function migrateLegacyToken() {
+  const s = loadSettings();
+  if (!s.token) return;
+  persistToken(s.token);
+  delete s.token;
+  saveSettings(s);
 }
 
 // Resuelve el binario de ffmpeg: 1) bundleado en resources/bin, 2) ffmpeg-static, 3) PATH.
@@ -26,11 +53,6 @@ function ffmpegPath() {
   } catch {}
   try { const s = require('ffmpeg-static'); if (s && fs.existsSync(s)) return s; } catch {}
   return name; // fallback al PATH del sistema
-}
-function saveSettings(s) { try { fs.writeFileSync(settingsPath(), JSON.stringify(s, null, 2)); } catch {} }
-function persistToken(tok) {
-  currentToken = tok;
-  const s = loadSettings(); s.token = tok; saveSettings(s);
 }
 
 function createWindow() {
@@ -44,16 +66,19 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false,
+      sandbox: false, // el preload necesita require() para exponer STATES y webUtils
     },
   });
   mainWin.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
 // Extrae el token desde una ventana de Adobe (getAccessToken en memoria).
+// timeoutMs 0/null = sin timeout (espera hasta que aparezca o se cierre la ventana).
 function grabTokenFrom(win, timeoutMs) {
   return new Promise((resolve) => {
     let done = false;
-    const finish = (t) => { if (done) return; done = true; clearInterval(poll); clearTimeout(to); resolve(t); };
+    let to = null;
+    const finish = (t) => { if (done) return; done = true; clearInterval(poll); if (to) clearTimeout(to); resolve(t); };
     const poll = setInterval(async () => {
       if (win.isDestroyed()) return finish(null);
       try {
@@ -63,7 +88,7 @@ function grabTokenFrom(win, timeoutMs) {
         if (tok && typeof tok === 'string' && tok.startsWith('eyJ')) finish(tok);
       } catch {}
     }, 1200);
-    const to = setTimeout(() => finish(null), timeoutMs || 0);
+    if (timeoutMs) to = setTimeout(() => finish(null), timeoutMs);
   });
 }
 
@@ -103,8 +128,8 @@ function silentReauth() {
 }
 
 app.whenReady().then(async () => {
-  const s = loadSettings();
-  if (s.token) currentToken = s.token;      // restaura sesión guardada
+  migrateLegacyToken();
+  currentToken = loadStoredToken();          // restaura sesión guardada
   createWindow();
   // intenta refrescar el token en silencio con la sesión persistida
   silentReauth().then((tok) => {
@@ -116,7 +141,7 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 // ─── IPC ───
-ipcMain.handle('get-settings', () => { const s = loadSettings(); delete s.token; return s; });
+ipcMain.handle('get-settings', () => loadSettings());
 ipcMain.handle('save-settings', (_e, s) => {
   const cur = loadSettings(); saveSettings({ ...cur, cleanVoice: s.cleanVoice, model: s.model }); return true;
 });
@@ -163,59 +188,22 @@ ipcMain.handle('reveal', (_e, p) => {
   return false;
 });
 
-// Procesa una lista con concurrencia + backoff por límite de créditos.
+// Procesa una lista con concurrencia + compuerta compartida de créditos (batch.js).
 ipcMain.handle('start-batch', async (_e, { files, cleanVoice, model }) => {
   if (!currentToken) return { ok: false, error: 'No conectado a Adobe' };
   cancelFlag = false;
-  const ffmpeg = ffmpegPath();
   const send = (ch, data) => { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send(ch, data); };
-  const queue = [...files];
-  let index = 0;
-
-  async function processWithRetry(filePath) {
-    while (true) {
-      if (cancelFlag) return { ok: false, error: 'cancelado' };
-      try {
-        return await enhanceFile(filePath, {
-          token: currentToken, model: model || 'v2',
-          cleanVoice: cleanVoice == null ? 100 : cleanVoice, ffmpeg,
-          onStatus: (state, pct) => send('status', { filePath, state, pct }),
-        });
-      } catch (err) {
-        if (err.code === 'LIMIT') {
-          // sin créditos: avisar con cuenta regresiva y esperar
-          const secs = err.retrySeconds && err.retrySeconds > 0 ? err.retrySeconds : 60;
-          send('limit', { seconds: secs, retryAt: err.retryAt });
-          send('status', { filePath, state: 'esperando' });
-          const until = Date.now() + secs * 1000;
-          while (Date.now() < until) {
-            if (cancelFlag) return { ok: false, error: 'cancelado' };
-            await new Promise(r => setTimeout(r, 1000));
-          }
-          send('limit-clear', {});
-          continue; // reintenta el mismo archivo
-        }
-        if (err.code === 'AUTH') {
-          const tok = await silentReauth();
-          if (tok) { send('conn', { connected: true, email: decodeEmail(tok) }); continue; }
-          send('auth-expired', {});
-          return { ok: false, error: 'Sesión expirada — reconectá con Adobe' };
-        }
-        return { ok: false, error: String(err.message || err) };
-      }
-    }
-  }
-
-  async function worker() {
-    while (index < queue.length && !cancelFlag) {
-      const filePath = queue[index++];
-      const res = await processWithRetry(filePath);
-      send('done', { filePath, ok: res.ok, outPath: res.outPath, error: res.error });
-    }
-  }
-
-  const n = Math.min(CONCURRENCY, queue.length);
-  await Promise.all(Array.from({ length: n }, () => worker()));
+  await runBatch({ files, cleanVoice, model, concurrency: CONCURRENCY }, {
+    send,
+    ffmpeg: ffmpegPath(),
+    getToken: () => currentToken,
+    isCanceled: () => cancelFlag,
+    reauth: async () => {
+      const tok = await silentReauth();
+      if (tok) send('conn', { connected: true, email: decodeEmail(tok) });
+      return tok;
+    },
+  });
   return { ok: true, canceled: cancelFlag };
 });
 

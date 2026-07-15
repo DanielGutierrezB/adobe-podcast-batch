@@ -57,8 +57,9 @@ del login embebido (nunca se guarda en el repo).
 
 ## Privacidad / seguridad
 
-- El token de Adobe se guarda **solo localmente** (en el `settings.json` de la
-  app dentro de tu carpeta de usuario). No se sube a ningún lado.
+- El token de Adobe se guarda **solo localmente** (archivo `token.dat` en la
+  carpeta de datos de la app, cifrado con el llavero del sistema cuando está
+  disponible). No se sube a ningún lado.
 - No hay claves ni secretos en el código.
 
 ## Aviso

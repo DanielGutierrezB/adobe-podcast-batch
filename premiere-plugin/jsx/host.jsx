@@ -1,30 +1,7 @@
 // host.jsx — ExtendScript para Premiere Pro (patrones probados de Editor Pro)
-var TICKS_PER_SECOND = 254016000000;
 var YELLOW_LABEL = 7; // etiqueta de color (7 = Mango/amarillo). 0-15 si hay que ajustar.
 
 function _json(o) { return (typeof JSON !== 'undefined') ? JSON.stringify(o) : _stringify(o); }
-
-// primera pista de audio SIN clips (para reusar sin mover nada); -1 si no hay
-function _firstEmptyAudioTrack(seq) {
-  for (var i = 0; i < seq.audioTracks.numTracks; i++) {
-    try { if (seq.audioTracks[i].clips.numItems === 0) return i; } catch (e) {}
-  }
-  return -1;
-}
-
-// ── Secuencias del proyecto ──
-function ppGetSequences() {
-  try {
-    var proj = app.project;
-    var out = [];
-    var active = proj.activeSequence ? proj.activeSequence.sequenceID : null;
-    for (var i = 0; i < proj.sequences.numSequences; i++) {
-      var s = proj.sequences[i];
-      out.push({ index: i, id: String(s.sequenceID), name: s.name, active: (s.sequenceID === active) });
-    }
-    return _json({ ok: true, sequences: out });
-  } catch (e) { return _json({ ok: false, error: String(e) }); }
-}
 
 // ── Secuencias ABIERTAS en la línea de tiempo (técnica de Editor Pro) ──
 function ppGetOpenSequences() {
@@ -125,11 +102,13 @@ function _findOrCreatePreset() {
 }
 
 // ── Exportar audio de una secuencia a WAV ──
-function ppExportAudio(seqId, outPath) {
+// presetPath (opcional): preset .epr provisto por el panel (p.ej. presets/wav-24-mono-48.epr
+// dentro de la extensión). Si no viene o no existe, se busca/genera uno.
+function ppExportAudio(seqId, outPath, presetPath) {
   try {
     var seq = _activate(seqId);
     if (!seq) return _json({ ok: false, error: 'Secuencia no encontrada' });
-    var preset = _findOrCreatePreset();
+    var preset = (presetPath && new File(presetPath).exists) ? presetPath : _findOrCreatePreset();
     if (!preset) return _json({ ok: false, error: 'NO_PRESET' });
     var existing = new File(outPath); if (existing.exists) existing.remove();
     app.project.activeSequence.exportAsMediaDirect(outPath, preset, 0); // 0 = secuencia entera
@@ -148,12 +127,12 @@ function ppPlaceEnhanced(seqId, wavPath, muteOthers) {
     var mediaFile = new File(wavPath);
     if (!mediaFile.exists) return _json({ ok: false, error: 'No existe el WAV: ' + wavPath });
 
-    var before = bin.children ? bin.children.numItems : 0;
+    var binBefore = bin.children ? bin.children.numItems : 0;
     app.project.importFiles([mediaFile.fsName], true, bin, false);
     var item = null;
     for (var w = 0; w < 30; w++) {
       $.sleep(250);
-      if (bin.children && bin.children.numItems > before) { item = bin.children[bin.children.numItems - 1]; }
+      if (bin.children && bin.children.numItems > binBefore) { item = bin.children[bin.children.numItems - 1]; }
       if (item) break;
     }
     if (!item) return _json({ ok: false, error: 'No se encontró el clip importado' });
@@ -173,15 +152,15 @@ function ppPlaceEnhanced(seqId, wavPath, muteOthers) {
     // 2) si no, crear una MONO al final. Firma real:
     //    addTracks(nVideo, despVideo, nAudio, tipoCanal[0=mono,1=stereo,2=5.1], despAudio, nSubmix)
     if (idx < 0) {
-      var before = aT.numTracks;
+      var tracksBefore = aT.numTracks;
       try {
         app.enableQE();
         var qeSeq = qe.project.getActiveSequence();
-        try { qeSeq.addTracks(0, 0, 1, 0, before, 0); }   // 1 audio MONO, después del último (append)
-        catch (e1) { try { qeSeq.addTracks(0, 0, 1, 0, before); } catch (e2) { qeSeq.addTracks(0, 0, 1); } }
+        try { qeSeq.addTracks(0, 0, 1, 0, tracksBefore, 0); }   // 1 audio MONO, después del último (append)
+        catch (e1) { try { qeSeq.addTracks(0, 0, 1, 0, tracksBefore); } catch (e2) { qeSeq.addTracks(0, 0, 1); } }
         $.sleep(600);
       } catch (eQE) { dbg.push('addTracks err:' + eQE); }
-      dbg.push('addTracks ' + before + '->' + aT.numTracks + ' (mono,append)');
+      dbg.push('addTracks ' + tracksBefore + '->' + aT.numTracks + ' (mono,append)');
       // la nueva pista vacía (preferir la de índice más alto = la del final)
       idx = anyEmptyFromBottom();
     }
