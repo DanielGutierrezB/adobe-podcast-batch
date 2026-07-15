@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ExtensionManifest Version="7.0" ExtensionBundleId="com.danielgutierrez.adobepodcastpremiere"
-    ExtensionBundleVersion="1.1.4" ExtensionBundleName="Adobe Podcast Enhance"
+    ExtensionBundleVersion="1.1.5" ExtensionBundleName="Adobe Podcast Enhance"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.danielgutierrez.adobepodcastpremiere.panel" Version="1.1.4"/>
-    <Extension Id="com.danielgutierrez.adobepodcastpremiere.login" Version="1.1.4"/>
+    <Extension Id="com.danielgutierrez.adobepodcastpremiere.panel" Version="1.1.5"/>
+    <Extension Id="com.danielgutierrez.adobepodcastpremiere.login" Version="1.1.5"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
@@ -46,7 +46,10 @@
     <!-- Ventana de login: window.open() NO está soportado en CEP (bloqueado por
          diseño — confirmado por Adobe). La vía oficial para flujos de login/SSO
          es una extensión separada de tipo ModalDialog, que CEP crea como ventana
-         nativa (no pasa por el bloqueador de popups de Chromium). -->
+         nativa (no pasa por el bloqueador de popups de Chromium).
+         AutoVisible DEBE ser true: false es el patrón de extensiones invisibles
+         (la ventana se abriría pero nunca se mostraría). Así lo declara el
+         sample oficial CEP_HTML_Test_Extension de Adobe para su ModalDialog. -->
     <Extension Id="com.danielgutierrez.adobepodcastpremiere.login">
       <DispatchInfo>
         <Resources>
@@ -59,7 +62,7 @@
             <Parameter>--disable-site-isolation-trials</Parameter>
           </CEFCommandLine>
         </Resources>
-        <Lifecycle><AutoVisible>false</AutoVisible></Lifecycle>
+        <Lifecycle><AutoVisible>true</AutoVisible></Lifecycle>
         <UI>
           <Type>ModalDialog</Type>
           <Menu>Conectar con Adobe</Menu>

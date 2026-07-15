@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.4';
+var APP_VERSION = '1.1.5';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -59,6 +59,16 @@ function markConnected(kind) {
 // Chromium). Como es una extensión nueva, CEP recién la reconoce después de
 // reiniciar Premiere una vez tras instalar esta versión.
 function openLoginWindow() {
+  // CEP enumera las extensiones al arrancar: si la ventana de login se instaló
+  // con una actualización y Premiere no se reinició, requestOpenExtension no
+  // hace NADA (falla en silencio). Detectarlo y avisar en vez de quedar mudos.
+  var known = [];
+  try { known = cs.getExtensions([LOGIN_EXT_ID]) || []; } catch (e) {}
+  if (!known.length) {
+    log('Login: la extensión de la ventana aún no está registrada en CEP.');
+    notify('Cerrá y reabrí Premiere una vez para activar la ventana de login (o pegá el token a mano en ⚙️).', 'warn');
+    return;
+  }
   log('Login: abriendo ventana de Adobe…');
   try { cs.requestOpenExtension(LOGIN_EXT_ID, ''); }
   catch (e) { notify('No pude abrir la ventana de login: ' + (e.message || e) + '. Usá "pegar el token a mano" mientras tanto.', 'error'); }
