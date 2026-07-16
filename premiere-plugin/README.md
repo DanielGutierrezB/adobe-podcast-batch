@@ -61,12 +61,47 @@ en Mac (`/Applications/...`) y Windows (`C:/Program Files/Adobe/...`); si tu
 instalación está en otro lado, el paso 1 (tu propio `.epr`) siempre funciona
 igual en ambos sistemas.
 
-## Instalar (modo desarrollo)
+## Instalar en una máquina nueva
 
-Ya tenés `PlayerDebugMode = 1`. La extensión se copia a:
-`~/Library/Application Support/Adobe/CEP/extensions/com.danielgutierrez.adobepodcastpremiere/`
+El plugin **no está firmado** con certificado de Adobe, así que CEP solo lo
+carga si la máquina tiene activado el modo de desarrollo. Si la entrada
+aparece en **Ventana → Extensiones** pero al clickearla no abre nada, es
+casi seguro esto.
 
-Reiniciá Premiere y abrila en **Ventana → Extensiones → Adobe Podcast Enhance**.
+**1. Activar PlayerDebugMode** (una sola vez por máquina):
+
+macOS — con Premiere cerrado, en Terminal:
+
+```bash
+defaults write com.adobe.CSXS.11 PlayerDebugMode 1
+defaults write com.adobe.CSXS.12 PlayerDebugMode 1
+killall cfprefsd
+```
+
+Windows — en `regedit`, crear el valor de cadena `PlayerDebugMode = 1` en
+`HKEY_CURRENT_USER\Software\Adobe\CSXS.11` y `...\CSXS.12`.
+
+(CSXS.11 cubre Premiere 2024, CSXS.12 cubre 2025+; poner ambos no molesta.)
+
+**2. Copiar la extensión** (el contenido del ZXP descomprimido, sin carpeta
+anidada de por medio) a:
+
+- macOS: `~/Library/Application Support/Adobe/CEP/extensions/com.danielgutierrez.adobepodcastpremiere/`
+- Windows: `%APPDATA%\Adobe\CEP\extensions\com.danielgutierrez.adobepodcastpremiere\`
+
+Verificá que quede `.../com.danielgutierrez.adobepodcastpremiere/CSXS/manifest.xml`
+(y no `.../podcast-enhance-x.y.z/CSXS/...` adentro).
+
+**3. ffmpeg** (solo para el slider Voz limpia < 100%): el ZXP no incluye el
+binario. Copiá un `ffmpeg` de tu plataforma a `<extensión>/bin/ffmpeg`
+(`bin\ffmpeg.exe` en Windows). Con Voz limpia al 100% no hace falta.
+
+**4.** Abrí Premiere → **Ventana → Extensiones → Adobe Podcast Enhance**.
+
+Si sigue sin abrir, el log de CEP dice el motivo exacto: buscá el
+`CEP*-PPRO.log` más reciente en `~/Library/Logs/CSXS/` (macOS) o
+`%TEMP%` (Windows) y fijate qué dice sobre `com.danielgutierrez.adobepodcastpremiere`
+("not signed" → paso 1; no aparece mencionada → paso 2).
 
 ## Estado
 
