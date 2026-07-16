@@ -92,14 +92,14 @@ anidada de por medio) a:
 Verificá que quede `.../com.danielgutierrez.adobepodcastpremiere/CSXS/manifest.xml`
 (y no `.../podcast-enhance-x.y.z/CSXS/...` adentro).
 
-**3. ffmpeg** (solo para el slider Voz limpia < 100%): el ZXP no incluye el
-binario. Si falta, el panel avisa y procesa al 100% (sin mezcla) en vez de
-fallar. Para habilitar la mezcla, copiá un `ffmpeg` de tu plataforma a
-`<extensión>/bin/ffmpeg` (`bin\ffmpeg.exe` en Windows):
-
-- macOS con Homebrew: `brew install ffmpeg && cp "$(which ffmpeg)" "<extensión>/bin/ffmpeg"`
-- macOS sin Homebrew: bajá el binario de [evermeet.cx/ffmpeg](https://evermeet.cx/ffmpeg/) y dale `chmod +x`.
-- Windows: bajá una build de [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) y copiá `ffmpeg.exe`.
+**3. ffmpeg** (solo para el slider Voz limpia < 100%): **se instala solo**.
+La primera vez que procesás con mezcla, el panel descarga el build estático
+de tu plataforma (~20-30 MB comprimido, desde los releases de
+[ffmpeg-static](https://github.com/eugeneware/ffmpeg-static)) y lo deja
+cacheado en `<extensión>/bin/` (o en `~/.adobe-podcast-premiere/bin/` si la
+carpeta de la extensión no es escribible). Si la descarga falla (sin red),
+avisa y procesa al 100% sin mezcla. También podés poner tu propio binario a
+mano en cualquiera de esas dos rutas y se usa ese.
 
 **4.** Abrí Premiere → **Ventana → Extensiones → Adobe Podcast Enhance**.
 

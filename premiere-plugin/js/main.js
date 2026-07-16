@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.8';
+var APP_VERSION = '1.1.9';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -24,9 +24,7 @@ try {
   if (!_require) throw new Error('Node no habilitado (require indefinido)');
   pathN = _require('path'); fsN = _require('fs'); osN = _require('os'); cp = _require('child_process');
   EXT = cs.getSystemPath(SystemPath.EXTENSION);
-  FFMPEG = pathN.join(EXT, 'bin', osN.platform() === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
   WAV_PRESET = pathN.join(EXT, 'presets', 'wav-24-mono-48.epr');
-  try { fsN.chmodSync(FFMPEG, 0o755); } catch (e) {}
   var phonos = _require(pathN.join(EXT, 'js', 'phonos.js'));
   enhanceToFile = phonos.enhanceToFile; checkToken = phonos.checkToken; isTokenExpired = phonos.isTokenExpired;
   log('Panel iniciado.');
@@ -34,12 +32,64 @@ try {
     var hostEnv = JSON.parse(cs.getHostEnvironment());
     log('Host: ' + hostEnv.appName + ' ' + hostEnv.appVersion + ' | ext=' + EXT);
   } catch (e) {}
-  log('OS: ' + osN.platform() + ' ' + osN.release() + ' | node=' + (process && process.version) + ' | ffmpeg=' + FFMPEG + (fsN.existsSync(FFMPEG) ? ' ✓' : ' ✗ NO ENCONTRADO (la mezcla <100% se degrada a 100%)'));
+  FFMPEG = findFfmpeg();
+  if (FFMPEG) { try { fsN.chmodSync(FFMPEG, 0o755); } catch (e) {} }
+  log('OS: ' + osN.platform() + ' ' + osN.release() + ' | node=' + (process && process.version) + ' | ffmpeg=' + (FFMPEG ? FFMPEG + ' ✓' : 'no instalado (se descarga solo al primer uso de la mezcla <100%)'));
 } catch (e) { log('⚠️ Error cargando módulos: ' + (e && e.message ? e.message : e)); }
 
 function evalES(code) { return new Promise(function (res) { cs.evalScript(code, res); }); }
 function esStr(s) { return JSON.stringify(String(s)); }
 function safeName(s) { return String(s).replace(/[^a-zA-Z0-9_\-\. áéíóúñÁÉÍÓÚÑ]/g, '_'); }
+
+// ── ffmpeg autocontenido: se descarga solo, UNA vez, al primer uso de la mezcla ──
+// El ZXP no lo incluye (engordaría cada update a >100MB con los binarios de
+// todas las plataformas); en cambio se baja el de ESTA plataforma desde los
+// releases de ffmpeg-static (builds estáticos, ~20-30MB comprimido) y queda
+// cacheado. Se busca en bin/ de la extensión y en ~/.adobe-podcast-premiere.
+var FFMPEG_RELEASE = 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/';
+function ffmpegName() { return osN.platform() === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'; }
+function userFfmpegPath() { return pathN.join(osN.homedir(), '.adobe-podcast-premiere', 'bin', ffmpegName()); }
+function findFfmpeg() {
+  var cands = [pathN.join(EXT, 'bin', ffmpegName()), userFfmpegPath()];
+  for (var i = 0; i < cands.length; i++) { try { if (fsN.existsSync(cands[i])) return cands[i]; } catch (e) {} }
+  return null;
+}
+async function ensureFfmpeg() {
+  if (FFMPEG && fsN.existsSync(FFMPEG)) return FFMPEG;
+  var plat = osN.platform(), arch = (typeof process !== 'undefined' && process.arch) || '';
+  var key = plat === 'darwin' ? ('darwin-' + (arch === 'arm64' ? 'arm64' : 'x64'))
+          : plat === 'win32' ? 'win32-x64' : null;
+  if (!key) throw new Error('no hay build de ffmpeg para ' + plat + '/' + arch);
+  var url = FFMPEG_RELEASE + 'ffmpeg-' + key + '.gz';
+  log('ffmpeg: descargando ' + url + ' …');
+  var r = await fetch(url);
+  if (!r.ok) throw new Error('descarga de ffmpeg: HTTP ' + r.status);
+  var gz = Buffer.from(await r.arrayBuffer());
+  var bin = _require('zlib').gunzipSync(gz);
+  log('ffmpeg: ' + Math.round(gz.length / 1e6) + 'MB comprimido → ' + Math.round(bin.length / 1e6) + 'MB');
+  // preferir bin/ de la extensión; si no es escribible (p.ej. /Library), caer al home
+  var targets = [pathN.join(EXT, 'bin', ffmpegName()), userFfmpegPath()];
+  var written = null, lastErr = null;
+  for (var t = 0; t < targets.length && !written; t++) {
+    try {
+      fsN.mkdirSync(pathN.dirname(targets[t]), { recursive: true });
+      fsN.writeFileSync(targets[t], bin);
+      fsN.chmodSync(targets[t], 0o755);
+      written = targets[t];
+    } catch (e) { lastErr = e; }
+  }
+  if (!written) throw lastErr || new Error('no pude guardar ffmpeg');
+  // sanity check: que el binario descargado realmente corra
+  await new Promise(function (res, rej) {
+    cp.execFile(written, ['-version'], { timeout: 10000 }, function (err, so) {
+      if (err) { try { fsN.unlinkSync(written); } catch (e2) {} rej(new Error('el ffmpeg descargado no corre: ' + (err.message || err))); }
+      else { log('ffmpeg: ' + String(so).split('\n')[0]); res(); }
+    });
+  });
+  FFMPEG = written;
+  log('ffmpeg listo en ' + written);
+  return written;
+}
 
 // ── token persistente ──
 function tokenFile() { return pathN.join(osN.homedir(), '.adobe-podcast-premiere-token'); }
@@ -345,14 +395,18 @@ async function processItems(pending) {
   if (pd.ok) { outDir = pathN.join(pd.dir, 'Audio_Process'); try { fsN.mkdirSync(outDir, { recursive: true }); } catch (e) {} }
   else { outDir = osN.tmpdir(); log('⚠️ Proyecto sin guardar → carpeta temporal.'); }
   var cleanVoice = Number($('cleanVoice').value), muteOthers = $('muteOthers').checked ? 1 : 0;
-  // La mezcla <100% necesita el binario de ffmpeg, que el ZXP no incluye.
-  // Si falta, degradar a 100% con aviso ANTES de gastar créditos, en vez de
-  // fallar al final del pipeline (enhance ya hecho) con un ENOENT críptico.
-  var ffmpegOk = false; try { ffmpegOk = fsN.existsSync(FFMPEG); } catch (e) {}
+  // La mezcla <100% necesita ffmpeg. Si falta, se descarga solo (una vez,
+  // queda cacheado). Solo si la descarga falla se degrada a 100% con aviso —
+  // siempre ANTES de gastar créditos, nunca al final del pipeline.
+  var ffmpegOk = !!(FFMPEG && fsN.existsSync(FFMPEG));
   if (cleanVoice < 100 && !ffmpegOk) {
-    log('⚠️ ffmpeg no está en ' + FFMPEG + ' → proceso con Voz limpia 100% (sin mezcla). Cómo instalarlo: README, sección ffmpeg.');
-    notify('Sin ffmpeg en la extensión: proceso al 100% de voz limpia (sin mezcla). Mirá el log para instalarlo.', 'warn');
-    cleanVoice = 100;
+    notify('Descargando el motor de mezcla (ffmpeg, una sola vez)…', 'info');
+    try { await ensureFfmpeg(); ffmpegOk = true; notify('Motor de mezcla listo.', 'success'); }
+    catch (e) {
+      log('⚠️ No pude auto-instalar ffmpeg: ' + (e.message || e) + ' → proceso con Voz limpia 100% (sin mezcla).');
+      notify('No pude descargar ffmpeg: proceso al 100% de voz limpia (sin mezcla). Ver log.', 'warn');
+      cleanVoice = 100;
+    }
   }
   log('── Procesando ' + pending.length + ' | vozLimpia=' + cleanVoice + '% | mutearOtras=' + muteOthers + ' | salida=' + outDir);
   notify('Procesando ' + pending.length + ' secuencia' + (pending.length === 1 ? '' : 's') + '…', 'info');
