@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.7';
+var APP_VERSION = '1.1.8';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -34,7 +34,7 @@ try {
     var hostEnv = JSON.parse(cs.getHostEnvironment());
     log('Host: ' + hostEnv.appName + ' ' + hostEnv.appVersion + ' | ext=' + EXT);
   } catch (e) {}
-  log('OS: ' + osN.platform() + ' ' + osN.release() + ' | node=' + (process && process.version) + ' | ffmpeg=' + FFMPEG);
+  log('OS: ' + osN.platform() + ' ' + osN.release() + ' | node=' + (process && process.version) + ' | ffmpeg=' + FFMPEG + (fsN.existsSync(FFMPEG) ? ' ✓' : ' ✗ NO ENCONTRADO (la mezcla <100% se degrada a 100%)'));
 } catch (e) { log('⚠️ Error cargando módulos: ' + (e && e.message ? e.message : e)); }
 
 function evalES(code) { return new Promise(function (res) { cs.evalScript(code, res); }); }
@@ -345,6 +345,15 @@ async function processItems(pending) {
   if (pd.ok) { outDir = pathN.join(pd.dir, 'Audio_Process'); try { fsN.mkdirSync(outDir, { recursive: true }); } catch (e) {} }
   else { outDir = osN.tmpdir(); log('⚠️ Proyecto sin guardar → carpeta temporal.'); }
   var cleanVoice = Number($('cleanVoice').value), muteOthers = $('muteOthers').checked ? 1 : 0;
+  // La mezcla <100% necesita el binario de ffmpeg, que el ZXP no incluye.
+  // Si falta, degradar a 100% con aviso ANTES de gastar créditos, en vez de
+  // fallar al final del pipeline (enhance ya hecho) con un ENOENT críptico.
+  var ffmpegOk = false; try { ffmpegOk = fsN.existsSync(FFMPEG); } catch (e) {}
+  if (cleanVoice < 100 && !ffmpegOk) {
+    log('⚠️ ffmpeg no está en ' + FFMPEG + ' → proceso con Voz limpia 100% (sin mezcla). Cómo instalarlo: README, sección ffmpeg.');
+    notify('Sin ffmpeg en la extensión: proceso al 100% de voz limpia (sin mezcla). Mirá el log para instalarlo.', 'warn');
+    cleanVoice = 100;
+  }
   log('── Procesando ' + pending.length + ' | vozLimpia=' + cleanVoice + '% | mutearOtras=' + muteOthers + ' | salida=' + outDir);
   notify('Procesando ' + pending.length + ' secuencia' + (pending.length === 1 ? '' : 's') + '…', 'info');
   $('runBtn').disabled = true; $('reprocessBtn').disabled = true;
@@ -363,7 +372,7 @@ async function processItems(pending) {
       if (!ex.ok) { it.error = true; errN++; setSt(id, ex.error === 'NO_PRESET' ? 'sin preset WAV' : 'error export', 'err'); log('  ✗ export: ' + ex.error); notify('⚠ ' + it.name + ': error al exportar.', 'error'); continue; }
       log('  · exportado: ' + tmpExport);
       setSt(id, 'procesando…', 'work'); notify('(' + (i + 1) + '/' + pending.length + ') ' + it.name + ' — limpiando voz…', 'info');
-      await enhanceToFile(tmpExport, finalOut, { token: token, cleanVoice: cleanVoice, ffmpeg: FFMPEG, codec: 'pcm_s24le', onStatus: (function (x) { return function (st, pct) { setSt(x, st + (pct ? ' ' + pct + '%' : ''), 'work'); }; })(id) });
+      await enhanceToFile(tmpExport, finalOut, { token: token, cleanVoice: cleanVoice, ffmpeg: ffmpegOk ? FFMPEG : null, codec: 'pcm_s24le', onStatus: (function (x) { return function (st, pct) { setSt(x, st + (pct ? ' ' + pct + '%' : ''), 'work'); }; })(id) });
       log('  · enhance ok: ' + finalOut);
       setSt(id, 'colocando…', 'work');
       var pl = JSON.parse(await evalES('ppPlaceEnhanced(' + esStr(id) + ', ' + esStr(finalOut) + ', ' + muteOthers + ')'));
