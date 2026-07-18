@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.9';
+var APP_VERSION = '1.1.10';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -142,7 +142,10 @@ cs.addEventListener(TOKEN_EVENT, function (ev) {
 function silentReauth(timeoutMs) {
   return new Promise(function (resolve) {
     var f = document.createElement('iframe');
-    f.style.cssText = 'position:absolute;width:1px;height:1px;left:-9999px;top:-9999px;border:0;';
+    // Tamaño REAL pero fuera de pantalla: con 1×1 px la SPA de Adobe no
+    // llega a inicializar adobeIMS (por eso antes fallaba y caía a abrir la
+    // ventana visible). Offscreen = invisible pero el JS de la página corre.
+    f.style.cssText = 'position:fixed;left:-10000px;top:0;width:480px;height:720px;border:0;';
     f.src = 'https://podcast.adobe.com/en/enhance';
     document.body.appendChild(f);
     var done = false, poll = null, to = null;
@@ -160,12 +163,12 @@ function silentReauth(timeoutMs) {
         if (tok && tok.indexOf('eyJ') === 0) finish(tok);
       } catch (e) {}
     }, 1000);
-    to = setTimeout(function () { finish(null); }, timeoutMs || 12000);
+    to = setTimeout(function () { finish(null); }, timeoutMs || 20000);
   });
 }
 async function trySilentReauth(reason) {
   log('Reauth silenciosa' + (reason ? ' (' + reason + ')' : '') + '…');
-  var tok = await silentReauth(12000);
+  var tok = await silentReauth(20000);
   if (tok) { token = tok; saveToken(tok); markConnected('sesión'); log('Reauth silenciosa OK.'); return tok; }
   log('Reauth silenciosa: sin sesión activa.');
   return null;
@@ -174,18 +177,23 @@ async function trySilentReauth(reason) {
 // ── verificación al abrir: ¿el token guardado sigue sirviendo? ──
 // checkToken es local (vencimiento del propio JWT) + un GET de solo lectura al
 // endpoint de PERFIL de Adobe IMS — no toca Adobe Podcast, no gasta créditos.
+// Al abrir el panel: validación 100% silenciosa (sin abrir NINGUNA ventana).
+// Si el token venció, se refresca con el iframe invisible mientras la sesión
+// de Adobe siga viva. Si tampoco se puede, queda "Desconectado" y el usuario
+// abre la ventana con el botón cuando quiera — nunca se abre sola al arrancar
+// (eso causaba el "parpadeo" de la ventana de login al reabrir Premiere).
 async function verifyConnection() {
-  if (!token) return;
+  if (!token) { markDisconnected(); return; }   // sin token: solo mostrar el panel de conexión, sin abrir ventana
   if (isTokenExpired && isTokenExpired(token)) {
-    log('Token vencido (según su payload) → reauth…');
-    if (!(await trySilentReauth('token vencido'))) requestReconnect('Sesión vencida — logueate en la ventana.');
+    log('Token vencido (según su payload) → reauth silenciosa…');
+    if (!(await trySilentReauth('token vencido'))) markDisconnected('Sesión vencida — tocá "Conectar con Adobe".');
     return;
   }
   var ok = checkToken ? await checkToken(token) : null;
   if (ok === true) { markConnected('verificado'); log('Token verificado ✓ (sin gastar créditos).'); return; }
   if (ok === false) {
-    log('Token rechazado por Adobe → reauth…');
-    if (!(await trySilentReauth('token rechazado'))) requestReconnect('Sesión vencida — logueate en la ventana.');
+    log('Token rechazado por Adobe → reauth silenciosa…');
+    if (!(await trySilentReauth('token rechazado'))) markDisconnected('Sesión vencida — tocá "Conectar con Adobe".');
     return;
   }
   log('Verificación de token no concluyente (¿sin red?) — se mantiene el estado.');
