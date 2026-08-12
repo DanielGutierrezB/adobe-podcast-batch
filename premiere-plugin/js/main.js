@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.13';
+var APP_VERSION = '1.1.14';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -382,7 +382,7 @@ function renderQueue() {
   $('queueEmpty').style.display = queue.length ? 'none' : 'block';
   var pend = queue.filter(function (q) { return !q.done; }).length;
   $('queueCount').textContent = queue.length + ' secuencia' + (queue.length === 1 ? '' : 's') + (queue.length ? ' · ' + pend + ' pend.' : '');
-  $('runBtn').disabled = pend === 0; $('runBtn').textContent = '▶ Procesar' + (pend ? ' (' + pend + ')' : '');
+  $('runBtn').disabled = pend === 0; $('runBtn').textContent = '▶ Procesar lista' + (pend ? ' (' + pend + ')' : '');
   updateSelBtns();
 }
 function updateSelBtns() {
@@ -406,6 +406,21 @@ function clearAll() { queue = []; log('Cola vaciada.'); renderQueue(); saveProje
 function run() { var p = queue.filter(function (q) { return !q.done; }); if (!p.length) { log('No hay pendientes.'); return; } processItems(p); }
 function reprocess() { var ids = checkedIds(); var items = queue.filter(function (q) { return ids.indexOf(q.id) >= 0; }); if (!items.length) { log('Nada seleccionado para reprocesar.'); return; } items.forEach(function (q) { q.done = false; }); log('Reprocesar ' + items.length + '.'); processItems(items); }
 
+// Procesa SOLO la secuencia abierta ahora, sin tener que cargar la lista.
+// La agrega a la cola si no estaba (así queda su estado visible) y procesa solo esa.
+async function processActive() {
+  var raw = await evalES('ppGetActiveSequence()');
+  var r; try { r = JSON.parse(raw); } catch (e) { log('✗ respuesta no-JSON: ' + String(raw).slice(0, 200)); notify('Error al leer la secuencia activa (ver log).', 'error'); return; }
+  if (!r.ok) { log('✗ ppGetActiveSequence: ' + r.error); notify(r.error || 'No hay secuencia activa.', 'error'); return; }
+  var item = null;
+  for (var i = 0; i < queue.length; i++) { if (queue[i].id === r.id) { item = queue[i]; break; } }
+  if (!item) { item = { id: r.id, name: r.name, done: false }; queue.push(item); }
+  item.done = false; item.error = false;
+  log('Procesar secuencia activa: ' + r.name + ' (id ' + r.id + ')');
+  renderQueue(); saveProjectQueue();
+  processItems([item]);
+}
+
 async function processItems(pending) {
   if (!token) { notify('Conectate a Adobe primero (⚙️).', 'error'); return; }
   if (!enhanceToFile) { notify('Motor de audio no cargó (ver log).', 'error'); return; }
@@ -428,7 +443,7 @@ async function processItems(pending) {
   }
   log('── Procesando ' + pending.length + ' | vozLimpia=' + cleanVoice + '% | mutearOtras=' + muteOthers + ' | salida=' + outDir);
   notify('Procesando ' + pending.length + ' secuencia' + (pending.length === 1 ? '' : 's') + '…', 'info');
-  $('runBtn').disabled = true; $('reprocessBtn').disabled = true;
+  $('runBtn').disabled = true; $('reprocessBtn').disabled = true; $('activeBtn').disabled = true;
   var okN = 0, errN = 0, stopped = false;
 
   for (var i = 0; i < pending.length; i++) {
@@ -472,7 +487,7 @@ async function processItems(pending) {
       setSt(id, 'error', 'err'); log('  ✗ ' + (e.message || e)); notify('⚠ ' + it.name + ': ' + (e.message || e), 'error');
     } finally { try { fsN.unlinkSync(tmpExport); } catch (e) {} }
   }
-  $('runBtn').disabled = false; renderQueue(); saveProjectQueue();
+  $('runBtn').disabled = false; $('activeBtn').disabled = false; renderQueue(); saveProjectQueue();
   log('── Fin. ok=' + okN + ' err=' + errN + (stopped ? ' (detenido)' : '') + ' | ' + outDir);
   if (stopped) { /* toast ya puesto por LIMIT/AUTH */ }
   else notify('Terminado: ' + okN + ' lista' + (okN === 1 ? '' : 's') + (errN ? ', ' + errN + ' con error' : '') + '.', errN ? 'warn' : 'success');
@@ -486,6 +501,7 @@ $('connectBtn').addEventListener('click', openLoginWindow);
 $('useTokenBtn').addEventListener('click', useManualToken);
 $('openAdobeBtn').addEventListener('click', openAdobe);
 $('logoutBtn').addEventListener('click', logout);
+$('activeBtn').addEventListener('click', processActive);
 $('loadBtn').addEventListener('click', loadSequences);
 $('runBtn').addEventListener('click', run);
 $('reprocessBtn').addEventListener('click', reprocess);
