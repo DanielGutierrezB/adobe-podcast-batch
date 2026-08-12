@@ -64,40 +64,65 @@ function _activate(id) {
   return null;
 }
 
-// ── Preset WAV: usa uno cacheado o lo genera del exporter WAV ──
+// Busca recursivamente en `path` un .epr de audio WAV. Los systempresets viven
+// en subcarpetas (por eso el escaneo plano fallaba en Windows). Devuelve fsName
+// o null. Prefiere "waveform"; acepta wav/aiff/uncompressed.
+function _searchPresetDir(path) {
+  var root = new Folder(path);
+  if (!root.exists) return null;
+  var stack = [root], guard = 0, fallback = null;
+  while (stack.length && guard++ < 8000) {
+    var d = stack.pop();
+    var items;
+    try { items = d.getFiles(); } catch (e) { continue; }
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it instanceof Folder) { stack.push(it); continue; }
+      var nm = it.name.toLowerCase();
+      if (nm.substr(-4) !== '.epr') continue;
+      if (nm.indexOf('waveform') >= 0) return it.fsName;               // el mejor candidato
+      if (!fallback && (nm.indexOf('wav') >= 0 || nm.indexOf('aiff') >= 0 || nm.indexOf('uncompressed') >= 0)) fallback = it.fsName;
+    }
+  }
+  return fallback;
+}
+
+// ── Preset WAV: cache → presets del sistema (Premiere/ME, Mac/Win) → ME (último recurso) ──
 function _findOrCreatePreset() {
-  // 1) cache persistente
+  // 1) cache persistente (de una generación previa)
   var base = Folder.userData ? Folder.userData.fsName : Folder.temp.fsName;
   var cached = base + '/APEnhance_wav_preset.epr';
   if (new File(cached).exists) return cached;
 
-  // 2) presets del sistema (SIN abrir Media Encoder) — ruta distinta en Mac/Windows
+  // 2) presets del sistema, SIN abrir Media Encoder. Se buscan en las carpetas
+  //    de Premiere Pro Y de Media Encoder, en Mac y Windows, varios años,
+  //    recursivamente (los .epr están en subcarpetas).
   var isWin = String($.os || '').toLowerCase().indexOf('windows') >= 0;
-  var years = ['2026', '2025', '2024', '2023'];
+  var years = ['2027', '2026', '2025', '2024', '2023', '2022', '2021', '2020'];
+  var apps = ['Adobe Premiere Pro', 'Adobe Media Encoder'];
   for (var y = 0; y < years.length; y++) {
-    var sp = isWin
-      ? 'C:/Program Files/Adobe/Adobe Media Encoder ' + years[y] + '/MediaIO/systempresets'
-      : '/Applications/Adobe Media Encoder ' + years[y] + '/Adobe Media Encoder ' + years[y] + '.app/Contents/MediaIO/systempresets';
-    var fold = new Folder(sp);
-    if (fold.exists) {
-      var files = fold.getFiles('*.epr');
-      // preferir uno WAV
-      for (var f = 0; f < files.length; f++) {
-        var fn = files[f].name.toLowerCase();
-        if (fn.indexOf('wav') >= 0 || fn.indexOf('waveform') >= 0 || fn.indexOf('uncompressed') >= 0) return files[f].fsName;
-      }
+    for (var a = 0; a < apps.length; a++) {
+      var sp = isWin
+        ? 'C:/Program Files/Adobe/' + apps[a] + ' ' + years[y] + '/MediaIO/systempresets'
+        : '/Applications/' + apps[a] + ' ' + years[y] + '/' + apps[a] + ' ' + years[y] + '.app/Contents/MediaIO/systempresets';
+      var hit = _searchPresetDir(sp);
+      if (hit) return hit;
     }
   }
 
-  // 3) último recurso: generar con el encoder (abre AME una vez, se cachea)
+  // 3) último recurso: generar con el encoder. Abre ME (lento en Windows en frío),
+  //    por eso se espera a que esté listo antes de pedir exporters, y se cachea.
   try {
-    app.encoder.launchEncoder(); $.sleep(500);
-    var ex = app.encoder.getExporters();
-    for (var i = 0; i < ex.length; i++) {
-      var n = (ex[i].name || '').toLowerCase();
-      if (n.indexOf('wav') >= 0 || n.indexOf('waveform') >= 0) {
-        var ps = ex[i].getPresets();
-        if (ps.length > 0) { ps[0].writeToFile(cached); return cached; }
+    app.encoder.launchEncoder();
+    var ex = null;
+    for (var w = 0; w < 40 && !(ex && ex.length); w++) { $.sleep(500); try { ex = app.encoder.getExporters(); } catch (eG) {} }
+    if (ex) {
+      for (var i = 0; i < ex.length; i++) {
+        var n = (ex[i].name || '').toLowerCase();
+        if (n.indexOf('wav') >= 0 || n.indexOf('waveform') >= 0) {
+          var ps = ex[i].getPresets();
+          if (ps.length > 0) { ps[0].writeToFile(cached); return cached; }
+        }
       }
     }
   } catch (e) {}
