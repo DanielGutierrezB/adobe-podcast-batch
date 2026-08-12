@@ -155,14 +155,35 @@ function _findExported(dir, stem) {
   } catch (e) { return null; }
 }
 
+// Punto In de la secuencia en segundos (tolera APIs viejas/nuevas). -1 si no hay.
+function _seqInSeconds(seq) {
+  try { var t = seq.getInPointAsTime ? seq.getInPointAsTime() : null; if (t && t.seconds != null) return parseFloat(t.seconds); } catch (e) {}
+  try { var s = seq.getInPoint(); if (s != null && s !== '') return parseFloat(s); } catch (e2) {}
+  return 0;
+}
+function _seqOutSeconds(seq) {
+  try { var t = seq.getOutPointAsTime ? seq.getOutPointAsTime() : null; if (t && t.seconds != null) return parseFloat(t.seconds); } catch (e) {}
+  try { var s = seq.getOutPoint(); if (s != null && s !== '') return parseFloat(s); } catch (e2) {}
+  return 0;
+}
+
 // ── Exportar audio de una secuencia a WAV ──
 // presetPath (opcional): preset .epr provisto por el panel (p.ej. presets/wav-24-mono-48.epr
 // dentro de la extensión). Si no viene o no existe, se busca/genera uno.
-function ppExportAudio(seqId, outPath, presetPath) {
+// workArea: 0 = secuencia entera (default), 1 = solo el rango In→Out.
+function ppExportAudio(seqId, outPath, presetPath, workArea) {
   var dbg = [];
   try {
     var seq = _activate(seqId);
     if (!seq) return _json({ ok: false, error: 'Secuencia no encontrada' });
+    var wa = (String(workArea) === '1') ? 1 : 0;
+    var inSec = 0;
+    if (wa === 1) {
+      inSec = _seqInSeconds(seq);
+      var outSec = _seqOutSeconds(seq);
+      dbg.push('inOut=' + inSec + '..' + outSec);
+      if (!(outSec > inSec)) return _json({ ok: false, error: 'NO_INOUT', debug: dbg });
+    }
     var preset = (presetPath && new File(presetPath).exists) ? presetPath : _findOrCreatePreset();
     dbg.push('preset=' + (preset || 'NULL'));
     if (!preset) return _json({ ok: false, error: 'NO_PRESET', debug: dbg });
@@ -175,9 +196,9 @@ function ppExportAudio(seqId, outPath, presetPath) {
     if (outFile.exists) { try { outFile.remove(); } catch (eR) {} }
 
     var ret;
-    try { ret = app.project.activeSequence.exportAsMediaDirect(outPath, preset, 0); } // 0 = secuencia entera
+    try { ret = app.project.activeSequence.exportAsMediaDirect(outPath, preset, wa); } // 0 = entera, 1 = In→Out
     catch (eEx) { return _json({ ok: false, error: 'exportAsMediaDirect: ' + eEx, debug: dbg }); }
-    dbg.push('ret=' + ret);
+    dbg.push('ret=' + ret + ' wa=' + wa);
 
     // En Windows exportAsMediaDirect puede devolver ANTES de terminar de
     // escribir el archivo (o escribirlo con otra extensión). Esperamos a que
@@ -198,15 +219,18 @@ function ppExportAudio(seqId, outPath, presetPath) {
       $.sleep(500); waited++;
     }
     dbg.push('archivo=' + found.name + ' bytes=' + found.length + ' esperaMs=' + (waited * 500));
-    return _json({ ok: true, outPath: found.fsName, debug: dbg });
+    return _json({ ok: true, outPath: found.fsName, inPoint: inSec, debug: dbg });
   } catch (e) { return _json({ ok: false, error: String(e), debug: dbg }); }
 }
 
-// ── Colocar el WAV procesado en un track nuevo desde el inicio + mutear el resto ──
-function ppPlaceEnhanced(seqId, wavPath, muteOthers) {
+// ── Colocar el WAV procesado en un track nuevo + mutear el resto ──
+// startSeconds: dónde arranca el clip (0 = inicio; para In→Out, el punto In,
+// así el audio limpio queda alineado con la parte que se procesó).
+function ppPlaceEnhanced(seqId, wavPath, muteOthers, startSeconds) {
   try {
     var seq = _activate(seqId);
     if (!seq) return _json({ ok: false, error: 'Secuencia no encontrada' });
+    var startAt = (startSeconds == null || startSeconds === '') ? '0' : String(startSeconds);
 
     var bin = _getOrCreateBin('Audio_Process');
     var mediaFile = new File(wavPath);
@@ -253,8 +277,9 @@ function ppPlaceEnhanced(seqId, wavPath, muteOthers) {
     dbg.push('idx=' + idx + ' vacio=' + (aT[idx].clips.numItems === 0));
 
     var track = aT[idx];
+    dbg.push('startAt=' + startAt);
     // solo colocar en pista VACÍA (nunca pisar/correr contenido)
-    try { track.overwriteClip(item, '0'); }
+    try { track.overwriteClip(item, startAt); }
     catch (eOw) { return _json({ ok: false, error: 'overwrite: ' + eOw, debug: dbg }); }
 
     try { item.setColorLabel(YELLOW_LABEL); } catch (eCol) {}
