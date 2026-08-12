@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.11';
+var APP_VERSION = '1.1.12';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -28,6 +28,16 @@ try {
   var phonos = _require(pathN.join(EXT, 'js', 'phonos.js'));
   enhanceToFile = phonos.enhanceToFile; checkToken = phonos.checkToken; isTokenExpired = phonos.isTokenExpired;
   log('Panel iniciado.');
+  // Recargar host.jsx desde disco e inyectarlo en el motor de ExtendScript.
+  // El updater reemplaza los archivos y recarga el panel, pero Premiere NO
+  // vuelve a leer el .jsx (queda cacheado desde el arranque de la app), así
+  // que sin esto los fixes de host.jsx solo tomaban efecto reiniciando
+  // Premiere. Inyectar el fuente actual redefine las funciones con la última
+  // versión sin reinicio.
+  try {
+    var hostSrc = fsN.readFileSync(pathN.join(EXT, 'jsx', 'host.jsx'), 'utf8');
+    cs.evalScript(hostSrc, function () { log('host.jsx recargado desde disco (' + hostSrc.length + ' bytes).'); });
+  } catch (eHost) { log('⚠️ No pude recargar host.jsx: ' + (eHost && eHost.message ? eHost.message : eHost)); }
   try {
     var hostEnv = JSON.parse(cs.getHostEnvironment());
     log('Host: ' + hostEnv.appName + ' ' + hostEnv.appVersion + ' | ext=' + EXT);
