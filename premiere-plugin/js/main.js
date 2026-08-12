@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.15';
+var APP_VERSION = '1.1.16';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -451,7 +451,22 @@ async function processActive() {
   processItems([item]);
 }
 
-async function processItems(pending) {
+// Procesa SOLO el rango In→Out de la secuencia abierta (para un pedazo puntual).
+async function processActiveInOut() {
+  var raw = await evalES('ppGetActiveSequence()');
+  var r; try { r = JSON.parse(raw); } catch (e) { log('✗ respuesta no-JSON: ' + String(raw).slice(0, 200)); notify('Error al leer la secuencia activa (ver log).', 'error'); return; }
+  if (!r.ok) { log('✗ ppGetActiveSequence: ' + r.error); notify(r.error || 'No hay secuencia activa.', 'error'); return; }
+  var item = null;
+  for (var i = 0; i < queue.length; i++) { if (queue[i].id === r.id) { item = queue[i]; break; } }
+  if (!item) { item = { id: r.id, name: r.name, done: false }; queue.push(item); }
+  item.done = false; item.error = false;
+  log('Procesar In/Out de: ' + r.name + ' (id ' + r.id + ')');
+  renderQueue(); saveProjectQueue();
+  processItems([item], { workArea: 1 });
+}
+
+async function processItems(pending, opts) {
+  var workArea = (opts && opts.workArea) ? 1 : 0;
   if (!token) { notify('Conectate a Adobe primero (⚙️).', 'error'); return; }
   if (!enhanceToFile) { notify('Motor de audio no cargó (ver log).', 'error'); return; }
   var outDir, pd; try { pd = JSON.parse(await evalES('ppGetProjectDir()')); } catch (e) { pd = { ok: false }; }
@@ -471,30 +486,41 @@ async function processItems(pending) {
       cleanVoice = 100;
     }
   }
-  log('── Procesando ' + pending.length + ' | vozLimpia=' + cleanVoice + '% | mutearOtras=' + muteOthers + ' | salida=' + outDir);
-  notify('Procesando ' + pending.length + ' secuencia' + (pending.length === 1 ? '' : 's') + '…', 'info');
-  $('runBtn').disabled = true; $('reprocessBtn').disabled = true; $('activeBtn').disabled = true;
+  log('── Procesando ' + pending.length + ' | vozLimpia=' + cleanVoice + '% | mutearOtras=' + muteOthers + (workArea ? ' | SOLO In→Out' : '') + ' | salida=' + outDir);
+  notify('Procesando ' + pending.length + (workArea ? ' (In→Out)' : '') + ' secuencia' + (pending.length === 1 ? '' : 's') + '…', 'info');
+  $('runBtn').disabled = true; $('reprocessBtn').disabled = true; $('activeBtn').disabled = true; $('inoutBtn').disabled = true;
   var okN = 0, errN = 0, stopped = false;
 
   for (var i = 0; i < pending.length; i++) {
     var it = pending[i]; it.done = false; it.error = false;
     var id = it.id, nm = safeName(it.name);
     var tmpExport = pathN.join(osN.tmpdir(), 'ppx_' + id + '_' + Date.now() + '.wav');
-    var finalOut = pathN.join(outDir, nm + '.wav');
-    log('▶ ' + nm + ' (id ' + id + ')');
+    var finalOut = pathN.join(outDir, nm + (workArea ? '_inout' : '') + '.wav');
+    log('▶ ' + nm + ' (id ' + id + ')' + (workArea ? ' [In→Out]' : ''));
     notify('(' + (i + 1) + '/' + pending.length + ') ' + it.name + ' — exportando…', 'info');
     try {
       setSt(id, 'exportando…', 'work');
-      var ex = JSON.parse(await evalES('ppExportAudio(' + esStr(id) + ', ' + esStr(tmpExport) + ', ' + esStr(WAV_PRESET) + ')'));
+      var ex = JSON.parse(await evalES('ppExportAudio(' + esStr(id) + ', ' + esStr(tmpExport) + ', ' + esStr(WAV_PRESET) + ', ' + workArea + ')'));
       if (ex.debug) log('  · export: ' + ex.debug.join(' | '));
-      if (!ex.ok) { it.error = true; errN++; setSt(id, ex.error === 'NO_PRESET' ? 'sin preset WAV' : 'error export', 'err'); log('  ✗ export: ' + ex.error); notify('⚠ ' + it.name + ': error al exportar.', 'error'); continue; }
+      if (!ex.ok) {
+        it.error = true; errN++;
+        var eLabel = ex.error === 'NO_PRESET' ? 'sin preset WAV' : (ex.error === 'NO_INOUT' ? 'sin In/Out' : 'error export');
+        setSt(id, eLabel, 'err'); log('  ✗ export: ' + ex.error);
+        notify(ex.error === 'NO_INOUT' ? ('⚠ ' + it.name + ': marcá los puntos In y Out en la secuencia (I y O).') : ('⚠ ' + it.name + ': error al exportar.'), 'error');
+        continue;
+      }
       tmpExport = ex.outPath || tmpExport;   // Premiere puede cambiar la extensión (usar la ruta real)
       log('  · exportado: ' + tmpExport);
       setSt(id, 'procesando…', 'work'); notify('(' + (i + 1) + '/' + pending.length + ') ' + it.name + ' — limpiando voz…', 'info');
       await enhanceToFile(tmpExport, finalOut, { token: token, cleanVoice: cleanVoice, ffmpeg: ffmpegOk ? FFMPEG : null, codec: 'pcm_s24le', onStatus: (function (x) { return function (st, pct) { setSt(x, st + (pct ? ' ' + pct + '%' : ''), 'work'); }; })(id) });
       log('  · enhance ok: ' + finalOut);
       setSt(id, 'colocando…', 'work');
-      var pl = JSON.parse(await evalES('ppPlaceEnhanced(' + esStr(id) + ', ' + esStr(finalOut) + ', ' + muteOthers + ')'));
+      var startAt = (ex.inPoint != null ? ex.inPoint : 0);
+      // En In→Out no muteamos: setMute silencia la pista entera y mataría el
+      // resto del timeline fuera de la región. El clip limpio se agrega arriba.
+      var effMute = workArea ? 0 : muteOthers;
+      if (workArea && muteOthers) log('  · In→Out: no muteo las otras pistas (silenciaría todo el timeline).');
+      var pl = JSON.parse(await evalES('ppPlaceEnhanced(' + esStr(id) + ', ' + esStr(finalOut) + ', ' + effMute + ', ' + esStr(String(startAt)) + ')'));
       if (pl.debug) log('  · ' + pl.debug.join(' | '));
       if (!pl.ok) { it.error = true; errN++; setSt(id, 'error', 'err'); log('  ✗ place: ' + pl.error); notify('⚠ ' + it.name + ': error al colocar.', 'error'); continue; }
       it.done = true; okN++; setSt(id, '✓ listo', 'done'); log('  ✓ colocado en track ' + pl.track + ' / ' + pl.totalTracks);
@@ -517,7 +543,7 @@ async function processItems(pending) {
       setSt(id, 'error', 'err'); log('  ✗ ' + (e.message || e)); notify('⚠ ' + it.name + ': ' + (e.message || e), 'error');
     } finally { try { fsN.unlinkSync(tmpExport); } catch (e) {} }
   }
-  $('runBtn').disabled = false; $('activeBtn').disabled = false; renderQueue(); saveProjectQueue();
+  $('runBtn').disabled = false; $('activeBtn').disabled = false; $('inoutBtn').disabled = false; renderQueue(); saveProjectQueue();
   log('── Fin. ok=' + okN + ' err=' + errN + (stopped ? ' (detenido)' : '') + ' | ' + outDir);
   if (stopped) { /* toast ya puesto por LIMIT/AUTH */ }
   else notify('Terminado: ' + okN + ' lista' + (okN === 1 ? '' : 's') + (errN ? ', ' + errN + ' con error' : '') + '.', errN ? 'warn' : 'success');
@@ -532,6 +558,7 @@ $('useTokenBtn').addEventListener('click', useManualToken);
 $('openAdobeBtn').addEventListener('click', openAdobe);
 $('logoutBtn').addEventListener('click', logout);
 $('activeBtn').addEventListener('click', processActive);
+$('inoutBtn').addEventListener('click', processActiveInOut);
 $('loadBtn').addEventListener('click', loadSequences);
 $('runBtn').addEventListener('click', run);
 $('reprocessBtn').addEventListener('click', reprocess);
