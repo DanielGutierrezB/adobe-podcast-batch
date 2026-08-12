@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.14';
+var APP_VERSION = '1.1.15';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -268,12 +268,27 @@ async function checkUpdate() {
   } catch (e) { log('checkUpdate err: ' + (e.message || e)); }
 }
 function reloadPanel() { try { window.location.reload(); } catch (e) { try { location.href = location.href; } catch (e2) {} } }
+
+// Log del updater persistido en disco: sobrevive al reload del panel, así el
+// motivo de un fallo no se pierde (el log en memoria se borra al recargar).
+function updateLogFile() { return pathN.join(osN.homedir(), '.adobe-podcast-premiere-update.log'); }
+function ulog(msg) { log(msg); try { fsN.appendFileSync(updateLogFile(), '[' + ts() + '] ' + msg + '\n'); } catch (e) {} }
+
+// Descomprime probando varios métodos (por si uno falta/falla en la máquina).
 function unzipInto(zip, dir) {
   return new Promise(function (res, rej) {
-    var cmd, args;
-    if (osN.platform() === 'win32') { cmd = 'tar'; args = ['-xf', zip, '-C', dir]; }
-    else { cmd = '/usr/bin/ditto'; args = ['-x', '-k', zip, dir]; }
-    cp.execFile(cmd, args, { maxBuffer: 1 << 27 }, function (err, so, se) { err ? rej(new Error(se || err.message)) : res(); });
+    var attempts = (osN.platform() === 'win32')
+      ? [['tar', ['-xf', zip, '-C', dir]], ['powershell', ['-NoProfile', '-Command', 'Expand-Archive -LiteralPath ' + JSON.stringify(zip) + ' -DestinationPath ' + JSON.stringify(dir) + ' -Force']]]
+      : [['/usr/bin/ditto', ['-x', '-k', zip, dir]], ['/usr/bin/unzip', ['-o', '-q', zip, '-d', dir]]];
+    var i = 0;
+    (function tryNext(prevErr) {
+      if (i >= attempts.length) return rej(prevErr || new Error('no pude descomprimir'));
+      var a = attempts[i++];
+      cp.execFile(a[0], a[1], { maxBuffer: 1 << 27 }, function (err, so, se) {
+        if (err) { ulog('descompresión con ' + a[0] + ' falló: ' + String(se || err.message).slice(0, 200)); tryNext(new Error(se || err.message)); }
+        else res();
+      });
+    })(null);
   });
 }
 async function doUpdate() {
@@ -281,20 +296,35 @@ async function doUpdate() {
   ic.classList.add('spinning'); btn.disabled = true;
   try {
     if (btn.classList.contains('has-update') && latestAsset) {
+      try { fsN.unlinkSync(updateLogFile()); } catch (e) {}   // empezar log limpio
+      ulog('update: descargando ' + latestAsset);
       notify('Descargando actualización…', 'info');
-      var buf = Buffer.from(await (await fetch(latestAsset)).arrayBuffer());
+      var resp = await fetch(latestAsset);
+      ulog('update: HTTP ' + resp.status + ' ' + (resp.ok ? 'ok' : 'ERROR'));
+      if (!resp.ok) throw new Error('descarga HTTP ' + resp.status);
+      var buf = Buffer.from(await resp.arrayBuffer());
+      // un ZXP/zip empieza con "PK"; si no, bajamos una página de error, no el binario
+      if (buf.length < 1000 || buf[0] !== 0x50 || buf[1] !== 0x4B) throw new Error('lo descargado no es un ZXP válido (' + buf.length + ' bytes)');
       var tmpZxp = pathN.join(osN.tmpdir(), 'ape_update_' + Date.now() + '.zxp');
       fsN.writeFileSync(tmpZxp, buf);
-      log('update: descargado ' + buf.length + ' bytes → descomprimiendo en ' + EXT);
+      ulog('update: ' + buf.length + ' bytes → descomprimiendo en ' + EXT);
       await unzipInto(tmpZxp, EXT);
       try { fsN.unlinkSync(tmpZxp); } catch (e) {}
-      notify('Actualizado ✓ Recargando panel…', 'success');
+      // verificar que el manifest quedó con la versión nueva
+      var okVer = '?';
+      try { okVer = (fsN.readFileSync(pathN.join(EXT, 'CSXS', 'manifest.xml'), 'utf8').match(/ExtensionBundleVersion="([^"]+)"/) || [])[1] || '?'; } catch (e) {}
+      ulog('update: OK, manifest ahora v' + okVer + ' — recargando');
+      notify('Actualizado ✓ (v' + okVer + ') Recargando…', 'success');
       setTimeout(reloadPanel, 900);
     } else {
       notify('Recargando panel…', 'info');
       setTimeout(reloadPanel, 300);
     }
-  } catch (e) { notify('Update falló: ' + (e.message || e) + ' — recargo igual.', 'warn'); setTimeout(reloadPanel, 1000); }
+  } catch (e) {
+    ulog('update FALLÓ: ' + (e.message || e));
+    ic.classList.remove('spinning'); btn.disabled = false;
+    notify('Update falló: ' + (e.message || e) + '. Detalle en el log.', 'error');
+  }
 }
 
 // ── seleccionar todo ──
@@ -546,6 +576,16 @@ renderQueue();
 })();
 try { $('versionLabel').textContent = 'v' + APP_VERSION; } catch (e) {}
 try { loadProjectQueue(); } catch (e) {}
+// incorporar el log persistente del último intento de update (sobrevive al reload)
+(function () {
+  try {
+    if (fsN.existsSync(updateLogFile())) {
+      var prev = fsN.readFileSync(updateLogFile(), 'utf8').replace(/\s+$/, '');
+      if (prev) { logLines.push('── último intento de actualización ──'); logLines.push(prev); }
+      if (prev.indexOf('FALLÓ') >= 0) notify('La última actualización falló (detalle en Descargar log).', 'warn');
+    }
+  } catch (e) {}
+})();
 try { setTimeout(checkUpdate, 1200); } catch (e) {}
 // al abrir: valida el token guardado (chequeo local + GET de solo lectura a
 // IMS, sin gastar créditos) y solo reautentica en silencio si hace falta.
