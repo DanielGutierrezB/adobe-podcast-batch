@@ -2,7 +2,7 @@
 var cs = new CSInterface();
 var _require = (typeof require !== 'undefined') ? require : (window.cep_node ? window.cep_node.require : null);
 
-var APP_VERSION = '1.1.10';
+var APP_VERSION = '1.1.11';
 var UPDATE_REPO = 'DanielGutierrezB/adobe-podcast-batch';
 var LOGIN_EXT_ID = 'com.danielgutierrez.adobepodcastpremiere.login';
 var TOKEN_EVENT = 'com.danielgutierrez.adobepodcastpremiere.tokenReady';
@@ -431,7 +431,9 @@ async function processItems(pending) {
     try {
       setSt(id, 'exportando…', 'work');
       var ex = JSON.parse(await evalES('ppExportAudio(' + esStr(id) + ', ' + esStr(tmpExport) + ', ' + esStr(WAV_PRESET) + ')'));
+      if (ex.debug) log('  · export: ' + ex.debug.join(' | '));
       if (!ex.ok) { it.error = true; errN++; setSt(id, ex.error === 'NO_PRESET' ? 'sin preset WAV' : 'error export', 'err'); log('  ✗ export: ' + ex.error); notify('⚠ ' + it.name + ': error al exportar.', 'error'); continue; }
+      tmpExport = ex.outPath || tmpExport;   // Premiere puede cambiar la extensión (usar la ruta real)
       log('  · exportado: ' + tmpExport);
       setSt(id, 'procesando…', 'work'); notify('(' + (i + 1) + '/' + pending.length + ') ' + it.name + ' — limpiando voz…', 'info');
       await enhanceToFile(tmpExport, finalOut, { token: token, cleanVoice: cleanVoice, ffmpeg: ffmpegOk ? FFMPEG : null, codec: 'pcm_s24le', onStatus: (function (x) { return function (st, pct) { setSt(x, st + (pct ? ' ' + pct + '%' : ''), 'work'); }; })(id) });

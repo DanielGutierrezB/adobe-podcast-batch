@@ -104,20 +104,67 @@ function _findOrCreatePreset() {
   return null;
 }
 
+// Busca en `dir` un archivo cuyo nombre empiece por `stem`, tolerando que
+// Premiere agregue o cambie la extensión (p.ej. deje "x.wav.wav" o "x.aif").
+// Devuelve el File más pesado (el export real, no un sidecar vacío) o null.
+function _findExported(dir, stem) {
+  try {
+    var fold = new Folder(dir);
+    if (!fold.exists) return null;
+    var all = fold.getFiles(function (f) { return (f instanceof File) && f.name.indexOf(stem) === 0; });
+    var best = null;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].length > 0 && (!best || all[i].length > best.length)) best = all[i];
+    }
+    return best;
+  } catch (e) { return null; }
+}
+
 // ── Exportar audio de una secuencia a WAV ──
 // presetPath (opcional): preset .epr provisto por el panel (p.ej. presets/wav-24-mono-48.epr
 // dentro de la extensión). Si no viene o no existe, se busca/genera uno.
 function ppExportAudio(seqId, outPath, presetPath) {
+  var dbg = [];
   try {
     var seq = _activate(seqId);
     if (!seq) return _json({ ok: false, error: 'Secuencia no encontrada' });
     var preset = (presetPath && new File(presetPath).exists) ? presetPath : _findOrCreatePreset();
-    if (!preset) return _json({ ok: false, error: 'NO_PRESET' });
-    var existing = new File(outPath); if (existing.exists) existing.remove();
-    app.project.activeSequence.exportAsMediaDirect(outPath, preset, 0); // 0 = secuencia entera
-    if (!new File(outPath).exists) return _json({ ok: false, error: 'La exportación no generó archivo' });
-    return _json({ ok: true, outPath: outPath });
-  } catch (e) { return _json({ ok: false, error: String(e) }); }
+    dbg.push('preset=' + (preset || 'NULL'));
+    if (!preset) return _json({ ok: false, error: 'NO_PRESET', debug: dbg });
+
+    var outFile = new File(outPath);
+    var parent = outFile.parent;
+    try { if (parent && !parent.exists) parent.create(); } catch (eP) {}
+    var dir = parent ? parent.fsName : Folder.temp.fsName;
+    var stem = outFile.name.replace(/\.wav$/i, '');
+    if (outFile.exists) { try { outFile.remove(); } catch (eR) {} }
+
+    var ret;
+    try { ret = app.project.activeSequence.exportAsMediaDirect(outPath, preset, 0); } // 0 = secuencia entera
+    catch (eEx) { return _json({ ok: false, error: 'exportAsMediaDirect: ' + eEx, debug: dbg }); }
+    dbg.push('ret=' + ret);
+
+    // En Windows exportAsMediaDirect puede devolver ANTES de terminar de
+    // escribir el archivo (o escribirlo con otra extensión). Esperamos a que
+    // aparezca (hasta ~60s) y luego a que el tamaño se estabilice.
+    var found = null, waited = 0;
+    while (waited < 120) {
+      found = outFile.exists ? outFile : _findExported(dir, stem);
+      if (found && found.length > 0) break;
+      $.sleep(500); waited++;
+    }
+    if (!found || found.length === 0) return _json({ ok: false, error: 'La exportación no generó archivo', debug: dbg });
+
+    var prev = -1, same = 0;
+    while (same < 4 && waited < 180) {
+      var cur = new File(found.fsName).length;
+      if (cur > 0 && cur === prev) same++; else { same = 0; prev = cur; }
+      if (same >= 4) break;
+      $.sleep(500); waited++;
+    }
+    dbg.push('archivo=' + found.name + ' bytes=' + found.length + ' esperaMs=' + (waited * 500));
+    return _json({ ok: true, outPath: found.fsName, debug: dbg });
+  } catch (e) { return _json({ ok: false, error: String(e), debug: dbg }); }
 }
 
 // ── Colocar el WAV procesado en un track nuevo desde el inicio + mutear el resto ──
