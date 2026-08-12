@@ -42,6 +42,16 @@ function ppGetOpenSequences() {
   } catch (e) { return _json({ ok: false, error: String(e) }); }
 }
 
+// Secuencia ACTIVA (la del tab abierto). Simple y sin tocar tabs, a diferencia
+// de ppGetOpenSequences que cierra/reabre para descubrir todas las abiertas.
+function ppGetActiveSequence() {
+  try {
+    var s = app.project.activeSequence;
+    if (!s) return _json({ ok: false, error: 'No hay una secuencia activa' });
+    return _json({ ok: true, id: String(s.sequenceID), name: s.name });
+  } catch (e) { return _json({ ok: false, error: String(e) }); }
+}
+
 // Carpeta del proyecto (para dejar los audios en Audio_Process al lado).
 function ppGetProjectDir() {
   try {
